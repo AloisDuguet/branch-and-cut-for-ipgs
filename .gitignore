@@ -1,0 +1,15 @@
+/paper
+*.log
+*.log
+*.aux
+*.out
+*.xml
+*.bbl
+*.blg
+*.synctex.gz
+*.dvi
+*.nav
+*.snm
+*.toc
+*.asv
+results/

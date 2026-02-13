@@ -1,0 +1,13 @@
+*.o
+.idea
+cmake-build-debug/
+main.out
+*.sh
+*.txt
+_deps/
+build.ninja
+cmake_install.cmake
+CMakeFiles/
+nodeModel.lp
+build/
+BranchAndCutTools/libBranchAndCutTools.a
