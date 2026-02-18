@@ -85,7 +85,7 @@ If one wants to use a game model that is not in an instance, one can either:
 
 After that, one has to change appropriately function `buildGameFromInstance` so that an instance of class `shared_ptr<NashEquilibriumProblem>` is created with the game model.
 
-### Experiments of the preprint [1^]
+### Experiments of the preprint [^1]
 
 There were five experiments in the preprint. To reproduce the results, from inside folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` do:
 1. mixed-integer knapsack NEP: for each instance in folder `../../instances/NEP_knapsack_instances` launch command<br>
