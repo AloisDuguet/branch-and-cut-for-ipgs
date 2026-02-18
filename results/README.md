@@ -1,4 +1,4 @@
-## Results
+## Results of [^1]
 
 This file describes how the raw numerical results are organized.
 
@@ -16,3 +16,5 @@ Each one of those folders is organized in a similar way with:
 More precisely, in the result file:
 - the first line gives a name to each column of the csv file
 - each other line describes the important information on the instance (options of the algorithm + numerical results)
+
+[^1]: Duguet, A., T. Harks, M. Schmidt, and J. Schwarz (2025). Branch-and-Cut for Mixed-Integer Generalized Nash Equilibrium Problems. Tech. rep. url: https://optimization-online.org/?p=30556.
