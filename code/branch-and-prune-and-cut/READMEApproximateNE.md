@@ -104,7 +104,7 @@ If one wants to use a game model that is not in an instance, one can either:
 
 After that, it suffices to call the function building an instance of class `shared_ptr<NashEquilibriumProblem>` related to the instance file wanted and do steps 3 and 4.
 
-### Experiments of the preprint [2^]
+### Experiments of the preprint [^2]
 
 There was one experiment in the preprint which is with NEP implementation games. To reproduce the results, from inside folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` do:
 For each instance in folder `../../instances/implementation_games` and each variant in {`basicAlgorithm`, `reuseTreeSearch`, `reuseWithoutCuts`} launch command<br>
