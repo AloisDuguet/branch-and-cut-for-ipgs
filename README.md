@@ -1,8 +1,8 @@
 # Branch-and-Cut for Mixed-Integer Generalized Nash Equilibrium Problems
 
-This project contains a C++ implementation of two preprints:
-The branch-and-cut approach for exact Nash equilibria described in the preprint [^1] accessible [here](https://optimization-online.org/?p=30556), and
-the branch-and-cut approach for approximate Nash equilibria described in the preprint [^2] accessible [here](https://optimization-online.org/?p=32468).
+This project contains a C++ implementation of two preprints:<br>
+- The branch-and-cut approach for exact Nash equilibria described in the preprint [^1] accessible [here](https://optimization-online.org/?p=30556),
+- the branch-and-cut approach for approximate Nash equilibria described in the preprint [^2] accessible [here](https://optimization-online.org/?p=32468).
 It is able to produce exact and approximate Nash equilibria for specific classes of mixed-integer generalized Nash equilibrium problems.
 The implementation continues to be updated. 
 Optimization subroutines (QPs and MIQPs) are solved with [Gurobi](https://www.gurobi.com/) using its C++ API.
