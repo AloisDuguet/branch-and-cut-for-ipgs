@@ -11,7 +11,7 @@ Optimization subroutines (QPs and MIQPs) are solved with [Gurobi](https://www.gu
 
 ## License
 
-This code is distributed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International.
+This code is distributed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International, see [here](https://creativecommons.org/licenses/by-nc-sa/4.0/).
 
 ## Code
 
