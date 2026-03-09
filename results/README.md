@@ -1,4 +1,4 @@
-## Results of [^1]
+# Results of [^1]
 
 This file describes how the raw numerical results are organized.
 

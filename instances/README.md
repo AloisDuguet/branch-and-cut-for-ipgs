@@ -1,8 +1,8 @@
-## Instances
+# Instances
 
 This file describes how the instances of the different types of games are written to describe a game.
 
-### NEP knapsack instances
+## NEP knapsack instances
 
 Folder `NEP_knapsack_instances` contains one file for each instance of NEP knapsack game.
 The C++ parser of such a file is function `parseNEPKnapsack` in file `GameParserAndBuilder.cpp` in folder `code/branch-and-prune-and-cut/Parsers`.
@@ -35,7 +35,7 @@ For integer NEP knapsack games, all items are indivisible; for mixed-integer NEP
 
 [^1]: Silvano, M., D. Pisinger, and P. Toth (1999). "Dynamic Programming and Strong Bounds for the 0-1 Knapsack Problem."" In: Management Science. doi: 10.1287/mnsc.45.3.414.
 
-### GNEP knapsack instances
+## GNEP knapsack instances
 
 Folder `GNEP_knapsack_instances` contains one file for each instance of GNEP knapsack games.
 The C++ parser of such a file is function `parseNEPKnapsack` in file `GameParserAndBuilder.cpp` in folder `code/branch-and-prune-and-cut/Parsers`.
@@ -43,7 +43,7 @@ The C++ parser of such a file is function `parseNEPKnapsack` in file `GameParser
 The name of the file indicates the main characteristics of the instance, with the same name format as for NEP knapsack instances.
 The information of the instance is also given as for the NEP knapsack instances.
 
-### Implementation game instances
+## Implementation game instances
 
 Folder `implementation_games` contains one file for each instance of NEP knapsack game. 
 Those instances are the same as the ones used in [^2] as JCDFG.
@@ -90,7 +90,7 @@ with:
 
 [^2]: Harks, T. and J. Schwarz (2025). "Generalized Nash equilibrium problems with mixed-integer variables." In: Mathematical Programming 209, pp. 231-277. doi: 10.1007/s10107-024-02063-6.
 
-### integer NEP with quadratic objectives
+## integer NEP with quadratic objectives
 
 Folder `Schwarze23DiscreteNEP` contains one file for each instance of NEP knapsack game. 
 Those instances are the same as the ones used in [^3].

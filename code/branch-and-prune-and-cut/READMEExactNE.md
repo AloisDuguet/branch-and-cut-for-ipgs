@@ -1,6 +1,6 @@
-## Computation of exact Nash equilibria
+# Computation of exact Nash equilibria
 
-### Running
+## Running
 
 In a terminal, use the following command:<br>
 `./<main> <instance> <gameType> <algorithmVariant> <cutType> <globalCut> <enumerateNE> <modelType> <branchingRule> <timeLimit> <verbosity> <resultFilename>`<br>
@@ -37,12 +37,12 @@ where:
 - `resultFilename` indicates in which file the one-line result of the solve is written. The relative path to this file starts from the folder of the executable.<br>
     possible values: `noWriteResult` to not write the one-line result in a file, any other value writes in file `resultFilename`
 
-#### Forbidden parameters or combinations
+### Forbidden parameters or combinations
 
 Some combinations of parameters are not allowed, such as `eqCuts` and `GNEP-fullInteger` because the equilibrium cuts are only valid in NEP. Pay attention to the choice of `gameType`, `cutType`, `globalCut` and `modelType` for such combinations.
 Many forbidden combinations have been coded so that an error is issued if it is used. You can find in function `checkValidArguments` of file `BranchAndCutForGNEP.cpp` a list of forbidden parameters or pairs of parameters and why they are forbidden.
 
-#### Preferred combinations
+### Preferred combinations
 
 In general:<br>
 `algorithmVariant` = "basicAlgorithm"<br>
@@ -57,7 +57,7 @@ For integer GNEPs (mandatory parameters):<br>
 `cutType` = "intersectionCuts"<br>
 `globalCut` = false
 
-#### Examples
+### Examples
 
 Integer GNEP:<br>
 Open a terminal in folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` and run the following command line<br>
@@ -67,7 +67,7 @@ Mixed-integer NEP:<br>
 Open a terminal in folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` and run the following command line<br>
 `./build/main ../../instances/NEP_knapsack_instances/2-5-5-weakcorr-2.txt NEP-mixedInteger basicAlgorithm eqCuts 1 0 manyEtasGurobi mostFractional 3600 1 noWriteResult`
 
-#### Using new game models
+### Using new game models
 
 The workflow to use the branch-and-cut algorithm is the following:
 1. instantiate an object of class `NashEquilibriumProblem` corresponding to the game model as defined in file `NashEquilibriumProblem.h`,
@@ -85,7 +85,7 @@ If one wants to use a game model that is not in an instance, one can either:
 
 After that, one has to change appropriately function `buildGameFromInstance` so that an instance of class `shared_ptr<NashEquilibriumProblem>` is created with the game model.
 
-### Experiments of the preprint [^1]
+## Experiments of the preprint [^1]
 
 There were five experiments in the preprint. To reproduce the results, from inside folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` do:
 1. mixed-integer knapsack NEP: for each instance in folder `../../instances/NEP_knapsack_instances` launch command<br>

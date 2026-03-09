@@ -1,8 +1,8 @@
-## Using the code
+# Using the code
 
 This document describes the dependencies used, gives some information on compilation of the code, how to run the code, and how to reproduce the results.
 
-### Dependencies
+## Dependencies
 
 Compiled and ran with the following dependencies*:
 
@@ -13,7 +13,7 @@ Compiled and ran with the following dependencies*:
 
 _* reported versions are not minimal required versions but are the ones that have been tested._
 
-### Compiling
+## Compiling
 
 To find Gurobi, you can configure the `GUROBI_HOME` environment variable according to [the official Gurobi guidelines](https://support.gurobi.com/hc/en-us/articles/4534161999889-How-do-I-install-Gurobi-Optimizer-).
 

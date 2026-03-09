@@ -1,6 +1,6 @@
-## Computation of approximate Nash equilibria
+# Computation of approximate Nash equilibria
 
-### Running
+## Running
 
 In a terminal, use the following command:<br>
 `./<main> <problemVariant> <instance> <approxNEParameters> <gameType> <algorithmVariant> <cutType> <globalCut> <enumerateNE> <modelType> <branchingRule> <timeLimit> <verbosity> <resultFilename>`<br>
@@ -56,12 +56,12 @@ where:
 - `resultFilename` indicates in which file the one-line result of the solve is written.<br>
     possible values: `noWriteResult` to not write the one-line result in a file, any other value writes in file `resultFilename`
 
-#### Forbidden parameters or combinations
+### Forbidden parameters or combinations
 
 Some combinations of parameters are not allowed, such as `eqCuts` and `GNEP-fullInteger` because the equilibrium cuts are only valid in NEP. Pay attention to the choice of `gameType`, `cutType`, `globalCut` and `modelType` for such combinations.
 Many forbidden combinations have been coded so that an error is issued if it is used. You can find in function `checkValidArguments` of files `BranchAndCutForGNEP.cpp` and `BranchAndCutMultiplicativeGNEP.cpp` a list of forbidden parameters or pairs of parameters and why they are forbidden.
 
-#### Preferred combinations
+### Preferred combinations
 
 In general:<br>
 `algorithmVariant` = "basicAlgorithm"<br>
@@ -76,7 +76,7 @@ For integer GNEPs (mandatory parameters):<br>
 `cutType` = "intersectionCuts"<br>
 `globalCut` = false
 
-#### Examples
+### Examples
 
 Compute a multiplicative-additive approximate NE of a NEP implementation game:<br>
 Open a terminal in folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` and run the following command line<br>
@@ -86,7 +86,7 @@ Compute a minimum value alpha such that there exists a multiplicative alpha-NE t
 Open a terminal in folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` and run the following command line<br>
 `./build/approxNEmain minMultiplicativeNE ../../instances/implementation_games/I_2_10_mm_10_10.txt 4-25 NEPImplementationGame reuseWithoutCuts eqCuts 1 0 manyEtasGurobi mostFractional 3600 1 noWriteResult`
 
-#### Using new game models
+### Using new game models
 
 The workflow to use the branch-and-cut algorithm is the following:
 1. instantiate an object of class `NashEquilibriumProblem` corresponding to the game model as defined in file `NashEquilibriumProblem.h`,
@@ -104,7 +104,7 @@ If one wants to use a game model that is not in an instance, one can either:
 
 After that, it suffices to call the function building an instance of class `shared_ptr<NashEquilibriumProblem>` related to the instance file wanted and do steps 3 and 4.
 
-### Experiments of the preprint [^2]
+## Experiments of the preprint [^2]
 
 There was one experiment in the preprint which is with NEP implementation games. To reproduce the results, from inside folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` do:
 For each instance in folder `../../instances/implementation_games` and each variant in {`basicAlgorithm`, `reuseTreeSearch`, `reuseWithoutCuts`} launch command<br>
