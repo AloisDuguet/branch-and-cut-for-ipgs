@@ -65,8 +65,8 @@ bool NodeSelector::isEmpty() const {
     return false;
 }
 
-int NodeSelector::getExploredNodeNumber() const {
-    return NodeSelector::m_exploredNodeNumber;
+int NodeSelector::getExploredNodeNumber() {
+    return m_exploredNodeNumber;
 }
 
 void NodeSelector::incrementExploredNodeNumber() {
@@ -84,9 +84,29 @@ shared_ptr<Node> NodeSelector::buildChildOfRootNode(
 }
 
 void NodeSelector::buildChildNodes(shared_ptr<BranchingRule> const& branchingRule,
-                                   shared_ptr<Node> const& node) {
+                                   shared_ptr<Node> const& node,
+                                   double integerFeasibilityTolerance,
+                                   bool integerBranchingActive) {
+    if (integerBranchingActive)
+        throw logic_error("integer branching active. It has not been tested enough.");
     vector<Constraint> branchingConstraints =
-        branchingRule->buildBranchingConstraints(node);
+        branchingRule->buildBranchingConstraints(node, integerFeasibilityTolerance, integerBranchingActive);
+    // cout << "first branching on " << branchingConstraints[1] << endl;
+    // cout << "second branching on " << branchingConstraints[0] << endl;
+
+    // check if the branching constraint is already present in the node problem
+    auto alreadyPresentBranches = node->getAllBranchingConstraints();
+    for (auto const& branchingConstraint : alreadyPresentBranches) {
+        if (branchingConstraint == branchingConstraints[0]
+            or branchingConstraint == branchingConstraints[1]) {
+            cout << "branching constraint already present: " << branchingConstraint << endl;
+            cout << "branching constraints that will be added: " << endl;
+            cout << branchingConstraints[0] << endl;
+            cout << branchingConstraints[1] << endl;
+            throw logic_error("the branching constraint that will be added is already present");
+        }
+    }
+
     // creating first node
     auto* newNode = node->buildChildWithBranch(&branchingConstraints[0]);
     newNode->setFatherNode(node);
@@ -206,6 +226,17 @@ vector<shared_ptr<Node>> NodeSelector::deepCopyNodelist() {
         }
     }
     return newNodeList;
+}
+
+void NodeSelector::emptyAllCuts() {
+    for (auto const& node : m_nodeList) {
+        auto currentNode = node;
+        currentNode->emptyCuts();
+        while (currentNode->getFatherNode()) {
+            currentNode = currentNode->getFatherNode();
+            currentNode->emptyCuts();
+        }
+    }
 }
 
 

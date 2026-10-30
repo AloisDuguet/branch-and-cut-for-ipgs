@@ -93,6 +93,10 @@ bool MySparseMatrix::operator!=(MySparseMatrix const& M) const {
 }
 
 MySparseMatrix MySparseMatrix::operator+(MySparseMatrix M) const {
+    // TODO: make two versions of this function:
+    // one that do not modify the two arguments (like right now)
+    // one that adds M to this for cases this += M
+    // (we want the result in one of the two arguments) -> operator+=
     for (indexx i = 0; i < m_rowIndices.size(); i++) {
         bool coef_added = false;
         for (indexx j = 0; j < M.m_rowIndices.size(); j++) {
@@ -123,6 +127,8 @@ void MySparseMatrix::addCoefficient(double value,
                                     indexx colIndex) {
     // check if index already has a coefficient. If yes, add value to the old value.
     // If no, add a new index with this value
+    // TODO: it should be faster to keep a list of index sorted
+    // because in this case adding a new coefficient costs log(n) while without it costs n.
     if (value != 0) {
         bool isNewIndex = true;
         for (indexx i = 0; i < m_rowIndices.size(); i++) {
@@ -156,6 +162,10 @@ double MySparseMatrix::getValue(indexx k) const {
     return m_values[k];
 }
 
+vector<double> MySparseMatrix::getValues() const {
+    return m_values;
+}
+
 indexx MySparseMatrix::getRowIndex(indexx k) const {
     return m_rowIndices[k];
 }
@@ -164,7 +174,16 @@ indexx MySparseMatrix::getColIndex(indexx k) const {
     return m_colIndices[k];
 }
 
+vector<indexx> MySparseMatrix::getRowIndices() const {
+    return m_rowIndices;
+}
+
+vector<indexx> MySparseMatrix::getColIndices() const {
+    return m_colIndices;
+}
+
 double MySparseMatrix::distanceMeasure(MySparseMatrix const& M) const {
+    // TODO: if the coefs are sorted by index, it will be much faster
     double sumOfSquare = 0;
     for (indexx i = 0; i < m_rowIndices.size(); i++) {
         bool coef_found = false;

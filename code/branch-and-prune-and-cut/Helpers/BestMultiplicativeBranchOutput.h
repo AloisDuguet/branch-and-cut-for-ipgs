@@ -18,6 +18,7 @@ public:
                     double cutComputationTime,
                     std::shared_ptr<Node> finalNode,
                     bool antiCyclingMeasuresTaken,
+                    bool NEBypassedIntegerFeasibility,
                     bool exactNEPossible,
                     double minDeltaPossible,
                     double bestDeltaFound) :
@@ -29,6 +30,7 @@ public:
                     cutComputationTime,
                     move(finalNode),
                     antiCyclingMeasuresTaken,
+                    NEBypassedIntegerFeasibility,
                     exactNEPossible,
                     minDeltaPossible,
                     bestDeltaFound) {

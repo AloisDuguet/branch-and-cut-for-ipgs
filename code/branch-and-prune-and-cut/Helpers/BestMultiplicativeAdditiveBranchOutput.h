@@ -18,21 +18,23 @@ public:
                     double cutComputationTime,
                     std::shared_ptr<Node> finalNode,
                     bool antiCyclingMeasuresTaken,
+                    bool NEBypassedIntegerFeasibility,
                     bool exactNEPossible,
                     double minDeltaPossible,
                     double bestDeltaFound,
                     double additiveApproxFixed) :
-    BestMultiplicativeBranchOutput(move(status),
-                    move(solutionList),
-                    numberOfNodesExplored,
-                    numberOfCutsAdded,
-                    computationTime,
-                    cutComputationTime,
-                    move(finalNode),
-                    antiCyclingMeasuresTaken,
-                    exactNEPossible,
-                    minDeltaPossible,
-                    bestDeltaFound) {
+        BestMultiplicativeBranchOutput(move(status),
+                        move(solutionList),
+                        numberOfNodesExplored,
+                        numberOfCutsAdded,
+                        computationTime,
+                        cutComputationTime,
+                        move(finalNode),
+                        antiCyclingMeasuresTaken,
+                        NEBypassedIntegerFeasibility,
+                        exactNEPossible,
+                        minDeltaPossible,
+                        bestDeltaFound) {
         this->additiveApproxFixed = additiveApproxFixed;
     };
 

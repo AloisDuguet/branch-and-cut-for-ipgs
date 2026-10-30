@@ -17,9 +17,28 @@ void NEPBranchOutput::oneLinePrint(
     os << numberOfCutsAdded << sep;
     os << computationTime << sep;
     os << cutComputationTime << sep;
-    os << antiCyclingMeasuresTaken;
+    os << getWarningCode();
 }
 
+int NEPBranchOutput::getWarningCode() const {
+    // sum up all warning codes together in a single integer number by
+    // aggregating the values of active warning with separator 0
+    // the method works as long as all warning codes are one-digit and
+    // the max value is less than max int value
+
+    // warning codes
+    // antiCyclingMeasuresTaken: 1
+    // NEBypassedIntegerFeasibility: 2
+
+    int code = 0;
+    if (antiCyclingMeasuresTaken)
+        code += 1;
+    if (NEBypassedIntegerFeasibility) {
+        code *= 100;
+        code += 2;
+    }
+    return code;
+}
 
 ostream& operator<<(ostream& os, NEPBranchOutput const& output) {
     os << endl << "----------------------------------------" << endl;
@@ -35,10 +54,9 @@ ostream& operator<<(ostream& os, NEPBranchOutput const& output) {
     os << "number of nodes explored: " << output.numberOfNodesExplored << endl;
     os << "number of cuts added: " << output.numberOfCutsAdded << endl;
     os << "anti cycling measures taken: ";
-    if (output.antiCyclingMeasuresTaken)
-        os << "true" << endl;
-    else
-        os << "false" << endl;
+    os << static_cast<string>(output.antiCyclingMeasuresTaken ? "true" : "false") << endl;
+    os << "NE bypassed integer feasibility: ";
+    os << static_cast<string>(output.NEBypassedIntegerFeasibility ? "true" : "false") << endl;
     os << "----------------------------------------" << endl;
     return os;
 }

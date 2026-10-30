@@ -13,7 +13,7 @@ public:
     BranchingRuleRandom();
 
     // select an index for branching at random among nonsatisfied integralities
-    indexx getBranchingVariable(std::shared_ptr<Node> const& node) override;
+    indexx getBranchingVariable(std::shared_ptr<Node> const& node, double integerFeasibilityTolerance) const override;
 };
 
 

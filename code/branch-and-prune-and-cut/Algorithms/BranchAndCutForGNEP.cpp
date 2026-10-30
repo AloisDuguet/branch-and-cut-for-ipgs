@@ -64,6 +64,9 @@ BranchAndCutForGNEP::BranchAndCutForGNEP(
     m_rootNode = make_shared<NodeGurobi>();
     m_node = shared_ptr<NodeGurobi>();
 
+    // integer branching activation
+    m_integerBranchingActive = false;
+
     // ----------------------------------------------------------------
     // tolerances
 
@@ -72,7 +75,7 @@ BranchAndCutForGNEP::BranchAndCutForGNEP(
     m_NETolerance = 1e-3;
 
     // tolerance for integrality constraints
-    m_integralityTolerance = 1e-5;
+    m_integralityTolerance = 1e-6;
 
     // it makes sense to have the same value as NETolerance because
     // the node problem is meant to mimic the hat V function used in the pruning step
@@ -81,7 +84,7 @@ BranchAndCutForGNEP::BranchAndCutForGNEP(
     // slightly above m_NETolerance, fixed experimentally
     m_deriveCutTolerance = 1e-6;
 
-    m_feasibilityTol = 1e-9;
+    m_feasibilityTol = m_integralityTolerance;
 
     // initialize parameters with infos on the progress of the algorithm
     m_instanceName = instanceName;
@@ -100,6 +103,7 @@ BranchAndCutForGNEP::BranchAndCutForGNEP(
     // cut counters
     m_totalNumberOfCuts = 0;
     m_numberOfCutsOfCurrentNode = 0;
+    m_maxCutsPerNode = -1;
     m_maxNonIntegerCutsPerNode = 10;
 
     // total time to derive some things related to intersection cuts
@@ -143,6 +147,7 @@ BranchAndCutForGNEP::BranchAndCutForGNEP(
     m_rhsBaseBonusForRestrictedCut = 1e-6;
     m_rhsBonusForRestrictedCut = 1e-6;
     m_factorIncreaseForRestrictedCut = 2;
+    m_NEBypassedIntegerFeasibility = false;
 
     // IMPORTANT: keep at the end of the function
     // initialize m_timeSpent with time spent in this function
@@ -154,7 +159,7 @@ void BranchAndCutForGNEP::initialize() {
     if (m_modelTypeString == "manyEtasGurobi") {
         if (m_gameTypeString == "GNEP-maxFlowGame") {
             // hard to solve because of many nonconvex quadratic terms in the objective function
-            m_NEP->computeEtasBounds(0.05);
+            m_NEP->computeEtasBounds(1);
         }
         else
             m_NEP->computeEtasBounds(0.0001);
@@ -246,26 +251,25 @@ NEPBranchOutput* BranchAndCutForGNEP::solve() {
                 if (m_verbosity >= 2)
                     cout << "pruning: node obj > 0" << endl;
             } else if (m_node->isSolved()) {
-                if (m_node->isIntegerSolution(m_integralityTolerance)) {
+                if (isIntegerSolutionOrEquivalent()) {
                     auto solution = computeBestResponseHandler(computeSolverTimeLimit(startTime));
                     checkTime(startTime);
-                    detectCycling(solution);
+                    handleCycling(solution);
                     double valNikaidoIsoda =
-                        m_NEP->evalNikaidoIsoda(solution, m_node->getSolution().objective);
+                        m_NEP->evalNikaidoIsoda(solution, m_node->getSolution().objective, true);
                     if (m_verbosity >= 2)
                         cout << "Psi(x*,y*) == " << valNikaidoIsoda << endl;
-                    if (isApproxZero(valNikaidoIsoda, m_NETolerance)) {
+                    if (compareApproxLess(valNikaidoIsoda, 0, m_NETolerance)) {
                         if (NEHandler(solution))
                             break;
                     } else {
-                        // add a cut and iterate on the same Node
-                        addCuts(solution);
+                        cutOrBranch(solution);
                     }
                 } else if (m_algorithmVariant == "cuttingBeforeBranching") {
                     auto solution =
                         computeBestResponseHandler(computeSolverTimeLimit(startTime));
                     checkTime(startTime);
-                    detectCycling(solution);
+                    handleCycling(solution);
                     if (!m_NEP->testBestEtaPossible(solution,
                                                     m_deriveCutTolerance,
                                                     m_verbosity) ) {
@@ -338,7 +342,7 @@ void BranchAndCutForGNEP::printNodeInformation(double timeSpent) const {
                 cout << "cuts derived: " << m_totalNumberOfCuts << endl;
         }
     }
-    else if (m_verbosity >= 2) {
+    if (m_verbosity >= 2) {
         // printing information at each node
         cout << endl;
         cout << "Node " << m_node->getNodeNumber() << " ";
@@ -349,6 +353,12 @@ void BranchAndCutForGNEP::printNodeInformation(double timeSpent) const {
             cout << m_node->getBranch();
         }
         cout << endl;
+    }
+    if (m_verbosity >= 4) {
+        auto branchingConstraints = m_node->getAllBranchingConstraints();
+        cout << "branching constraints:" << endl;
+        for (auto const& con : branchingConstraints)
+            cout << con << endl;
     }
 }
 
@@ -433,6 +443,13 @@ bool BranchAndCutForGNEP::NEHandler(vector<double> const& solution) {
     if (m_verbosity >= 1) {
         cout << "stopping at first NE found" << endl << endl;
     }
+
+    if (!m_node->isIntegerSolution(m_integralityTolerance)) {
+        m_NEBypassedIntegerFeasibility = true;
+        cout << "warning: numerical issues. NE satisfies NE condition, but not integer feasibility. "
+                "It has been accepted because it is a leaf node, and thus the branching constraints "
+                "should have forced the node solution to be integer" << endl;
+    }
     return true;
 }
 
@@ -444,15 +461,17 @@ bool BranchAndCutForGNEP::detectCycling(std::vector<double> const& solution) {
         // warning that there might be numerical issues with the cuts:
         if (dist < 1e-3) {
             cout << "solution and last solution quite close in norm 2: "
-                 << format("{:.7f}", dist) << endl;
-            double valNikaidoIsoda =
-                        m_NEP->evalNikaidoIsoda(solution, m_node->getSolution().objective, m_node->isIntegerSolution(m_integralityTolerance));
-            cout << "Psi(x*,y*) == " << valNikaidoIsoda << endl;
+                 << format("{:.9f}", dist) << endl;
+            if (bool const isIntegerSolution = m_node->isIntegerSolution(m_integralityTolerance)) {
+                double valNikaidoIsoda =
+                    m_NEP->evalNikaidoIsoda(solution, m_node->getSolution().objective, isIntegerSolution);
+                cout << "Psi(x*,y*) == " << valNikaidoIsoda << endl;
+            }
             for (int i = 0; i < m_lastIterationSolution.size(); i++)
                 if (m_lastIterationSolution[i]-solution[i] != 0)
                     cout << "index " << i << " are "
-                         << format("{:.7f}", m_lastIterationSolution[i])
-                         << " and " << format("{:.7f}", solution[i]) << endl;
+                         << format("{:.9f}", m_lastIterationSolution[i])
+                         << " and " << format("{:.9f}", solution[i]) << endl;
         }
         if (m_lastIterationSolution == solution)
             // cycling because the solution of the last iteration has not been cut off
@@ -460,6 +479,41 @@ bool BranchAndCutForGNEP::detectCycling(std::vector<double> const& solution) {
     } else
         m_rhsBonusForRestrictedCut = m_rhsBaseBonusForRestrictedCut;
     return false;
+}
+
+void BranchAndCutForGNEP::cutOrBranch(vector<double> const& solution) {
+    if (m_maxCutsPerNode == -1 or m_numberOfCutsOfCurrentNode < m_maxCutsPerNode)
+        addCuts(solution);
+    else {
+        if (m_verbosity >= 2)
+            cout << "branching instead of cutting because max cuts per node of "
+                 << m_maxCutsPerNode << " is reached" << endl;
+        try {
+            branchingHandler();
+        }
+        catch (logic_error const&  e) {
+            if (e.what() == "all integer variables are fixed: the node should have been discarded earlier") {
+                // situation: all integer variables are fixed
+                // 1) if there are no continuous variables, we already checked
+                // that the only feasible solution of the node was not an NE,
+                // so we can safely prune the node
+                // 2) if there are continuous variables, we would need a special
+                // check, like looking for an NE in a continuous game,
+                // which we don't have right now
+                if (m_node->getSubproblem()->getNumberOfVariables() == m_node->getSubproblem()->getIntegralityConstraints().size()) {
+                    cout << "pruning node because all integer variables are fixed "
+                            "and the only feasible strategy profile is not an NE" << endl;
+                    // doing nothing is pruning
+                }
+                else {
+                    throw logic_error("a leaf of the integer branching tree cannot "
+                                      "be pruned: no test have been implemented for now");
+                }
+            }
+            else
+                throw;
+        }
+    }
 }
 
 void BranchAndCutForGNEP::addCuts(vector<double> const& solution) {
@@ -474,39 +528,16 @@ void BranchAndCutForGNEP::addCuts(vector<double> const& solution) {
     m_timeCounters["totalCutDerivationTime"] += elapsedChrono(startCutDerivationTime);
     vector<Cut> cuts = cutInformation.getCuts();
     m_timeCounters += cutInformation.getTimeValues();
-    handleCycling(cuts, solution);
+    handleCycling(solution);
     checkCutsValidity(cuts, solution);
 }
 
-void BranchAndCutForGNEP::handleCycling(vector<Cut> &cuts, vector<double> const &solution) {
+void BranchAndCutForGNEP::handleCycling(vector<double> const &solution) {
     // restrict cuts by restrictRhsCut in case of cycling
     if (detectCycling(solution)) {
         m_antiCyclingMeasuresTaken = true;
-        cout << "\nerror: cycling detected. The solution of the last "
-                "iteration is the current solution, it has not been cut off."
-             << endl;
-        if (m_rhsBonusForRestrictedCut > 0) {
-            // WARNING: the execution of this if-block does not
-            // respect the correctness of the algorithm
-            // check value of m_antiCyclingMeasuresTaken
-            // at the end of the computation to know if
-            // the result is to be trusted
-            cout << "----> substracting a small positive value "
-                 << m_rhsBonusForRestrictedCut
-                 << " to each rhs of cuts. It may remove an NE."
-                 << endl;
-            for (auto & cut : cuts) {
-                cout << "old cut: " << cut << endl;
-                cut.increaseB(-m_rhsBonusForRestrictedCut);
-                cout << "new cut: " << cut << endl;
-            }
-            // increasing rhsBonus in case it does not resolve the cycling
-            m_rhsBonusForRestrictedCut *= m_factorIncreaseForRestrictedCut;
-            if (m_verbosity >= 4)
-                writeLogCycling(cuts,solution); // useful when debugging
-        } else
-            throw logic_error("m_rhsBonusForRestrictedCut == 0 means that no "
-                              "trial to solve the cycling will be done, so we stop");
+        throw runtime_error("error: cycling detected. The solution of the last "
+                "iteration is the current solution, it has not been cut off.");
     }
 }
 
@@ -534,11 +565,6 @@ void BranchAndCutForGNEP::checkCutsValidity(
                 "probably due to numerical issues");
         }
         m_reuseNode = true;
-
-        // special check for the instance of implementation games which do not find any NE
-        // when there is one
-        // if (m_gameTypeString == "implementationGames")
-            // checkValidNENotCutExactGNEPImplementationGames(cuts);
 
     } else {
         auto solution = computeBestResponseHandler(60);
@@ -722,9 +748,36 @@ void BranchAndCutForGNEP::logNoCutAdded() const {
 }
 
 void BranchAndCutForGNEP::branchingHandler() const {
-    if (m_verbosity >= 2)
-        cout << "branching" << endl;
-    m_nodeSelector->buildChildNodes(m_branchingRule, m_node);
+    try {
+        m_nodeSelector->buildChildNodes(m_branchingRule, m_node, m_integralityTolerance, m_integerBranchingActive);
+        if (m_verbosity >= 2)
+            cout << "branching" << endl;
+    }
+    catch (logic_error const&  e) {
+        // if integer branching is inactive, do not throw error to do a pruning of the current node
+        if (m_integerBranchingActive) {
+            string s = e.what();
+            if (s == "all integer variables are fixed: the node should have been discarded earlier") {
+                // leaf node even for integer branching (if integer branching active):
+                // the only feasible strategy profile is not an NE
+                // so the node can be pruned
+                if (m_verbosity >= 1)
+                    cout << "pruning node because the node solution is integer and "
+                            "all possible integer branching has been done" << endl;
+            }
+            else throw;
+        }
+        else {
+            if (e.what() == "the branching constraint that will be added is already present")
+                throw;
+            if (e.what() == "There is no remaining integer variable that was not "
+                      "branched on" and m_verbosity >= 2)
+                cout << "all branching already done: pruning node" << endl;
+            else {
+                throw logic_error("error during buildChildNodes not recognized: " + static_cast<string>(e.what()));
+            }
+        }
+    }
 }
 
 void BranchAndCutForGNEP::printParameters(ostream& os) const {
@@ -899,7 +952,7 @@ void BranchAndCutForGNEP::writeEndOfOneLineResult(NEPBranchOutput const &output,
     os << sep1;
     os << m_modelTypeString << sep1;
     os << m_branchingRuleString << sep1;
-    os << format("{:.9f}", m_feasibilityTol) << sep1;
+    os << format("{:.10g}", m_feasibilityTol) << sep1;
 
     // print output
     output.oneLinePrint(os, sep1);
@@ -940,6 +993,7 @@ NEPBranchOutput* BranchAndCutForGNEP::returnHandler(
         optimizationStatus = "ERROR: " + errorMsg;
         // setting time spent to time limit so that analysis of the results
         // does not confuse an instance that errored with a properly solved instance
+        cout << "time spent when error is returned: " << m_timeSpent << endl;
         m_timeSpent = m_timeLimit;
     }
 
@@ -948,12 +1002,13 @@ NEPBranchOutput* BranchAndCutForGNEP::returnHandler(
 
     auto output = new NEPBranchOutput(optimizationStatus,
                                       m_nodeSelector->getSolutionList(),
-                                      m_nodeSelector->getExploredNodeNumber(),
+                                      NodeSelector::getExploredNodeNumber(),
                                       m_totalNumberOfCuts,
                                       m_timeSpent,
                                       m_timeCounters["totalCutDerivationTime"],
                                       m_node,
-                                      m_antiCyclingMeasuresTaken);
+                                      m_antiCyclingMeasuresTaken,
+                                      m_NEBypassedIntegerFeasibility);
     // write log in file instanceName
     // print results
     cout << *output << endl;
@@ -983,7 +1038,7 @@ void BranchAndCutForGNEP::printSocialWelfare(SolveOutput const& output) const {
 
 bool BranchAndCutForGNEP::checkTimeLimit(
         chrono::time_point<chrono::system_clock> const& startTime) const {
-    auto currentTime = elapsedChrono(startTime) + m_timeSpent;
+    auto currentTime = getTimeInAlgorithm(startTime);
     if (currentTime > m_timeLimit - m_bufferTime) {
         if (m_verbosity >= 1)
             cout << endl << "time limit exceeded (up to buffer time of "
@@ -996,13 +1051,49 @@ bool BranchAndCutForGNEP::checkTimeLimit(
     return true;
 }
 
-double BranchAndCutForGNEP::computeSolverTimeLimit(
-        chrono::time_point<chrono::high_resolution_clock> const& startTime) const {
+double BranchAndCutForGNEP::getTimeInAlgorithm(
+chrono::time_point<chrono::high_resolution_clock> const &startTime) const {
     // m_timeSpent is the time spent in the initialization
     // of the class BranchAndCutForGNEP
-    return (m_timeLimit - elapsedChrono(startTime) - m_timeSpent - m_bufferTime);
+    return elapsedChrono(startTime) + m_timeSpent;
+}
+
+double BranchAndCutForGNEP::getRemainingTime(std::chrono::time_point<std::chrono::high_resolution_clock> const &startTime) const {
+    return m_timeLimit - getTimeInAlgorithm(startTime) - m_bufferTime;
+}
+
+double BranchAndCutForGNEP::computeSolverTimeLimit(
+        chrono::time_point<chrono::high_resolution_clock> const& startTime) const {
+    return getRemainingTime(startTime);
 }
 
 void BranchAndCutForGNEP::resetExploredNodeNumber() const {
     m_nodeSelector->resetExploredNodeNumber();
+}
+
+bool BranchAndCutForGNEP::isBranchingPossible() const {
+    try {
+        auto indexToBranch = m_branchingRule->getBranchingVariable(m_node, m_integralityTolerance);
+        return true;
+    }
+    catch (std::exception const& e) {
+        string noMoreBranchingPossible = "There is no remaining integer variable "
+                      "that was not branched on";
+        if (e.what() == noMoreBranchingPossible)
+            return false;
+        else
+            throw logic_error("unknown error during getBranchingVariable: " + static_cast<string>(e.what()));
+    }
+
+}
+
+bool BranchAndCutForGNEP::isIntegerSolutionOrEquivalent() const {
+    auto b1 = m_node->isIntegerSolution(m_integralityTolerance);
+    if (b1)
+        return b1;
+    auto b2 = !isBranchingPossible();
+    if (b2)
+        cout << "entering NE check because it is not integer "
+                "feasible but no more branches can be derived" << endl;
+    return b2;
 }

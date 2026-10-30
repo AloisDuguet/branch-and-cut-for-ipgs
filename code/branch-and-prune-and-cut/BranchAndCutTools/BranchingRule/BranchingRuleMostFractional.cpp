@@ -13,7 +13,8 @@ BranchingRuleMostFractional::BranchingRuleMostFractional() {
 }
 
 indexx BranchingRuleMostFractional::getBranchingVariable(
-        shared_ptr<Node> const& node) {
+        shared_ptr<Node> const& node,
+        double integerFeasibilityTolerance) const {
     vector<double> solution = node->getSolution().solution;
     vector<indexx> integralityConstraints =
         node->getSubproblem()->getIntegralityConstraints();
@@ -22,7 +23,7 @@ indexx BranchingRuleMostFractional::getBranchingVariable(
     for (indexx index : integralityConstraints) {
         double fractionalValue = solution[index] - floor(solution[index]);
         double distToHalf = abs(fractionalValue - 0.5);
-        if (!compareApproxEqual(distToHalf, 0.5)) {
+        if (!compareApproxEqual(distToHalf, 0.5, integerFeasibilityTolerance)) {
             // do not take into account any integral value
             if (distToHalf < closestToHalf) {
                 mostFractionalIndex = index;
@@ -33,6 +34,5 @@ indexx BranchingRuleMostFractional::getBranchingVariable(
     if (mostFractionalIndex != -1)
         return mostFractionalIndex;
     throw logic_error("There is no remaining integer variable that was not "
-                      "branched on in "
-                      "BranchingRuleFirstFractional::getBranchingVariable");
+                      "branched on");
 }

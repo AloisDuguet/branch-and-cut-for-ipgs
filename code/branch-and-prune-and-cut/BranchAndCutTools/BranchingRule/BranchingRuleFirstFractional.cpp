@@ -18,18 +18,17 @@ BranchingRuleFirstFractional::BranchingRuleFirstFractional() {
 }
 
 indexx BranchingRuleFirstFractional::getBranchingVariable(
-        shared_ptr<Node> const& node) {
+        shared_ptr<Node> const& node,
+        double integerFeasibilityTolerance) const {
     vector<double> solution = node->getSolution().solution;
     vector<indexx> integralityConstraints =
         node->getSubproblem()->getIntegralityConstraints();
     for (indexx i = 0; i < integralityConstraints.size(); i++) {
-        if (!compareApproxEqual(ceil(solution[integralityConstraints[i]]),
-                                floor(solution[integralityConstraints[i]]))) {
-            // index of first unsatisfied integrality constraint is returned
+        double fractionalValue = solution[i] - floor(solution[i]);
+        double distToHalf = abs(fractionalValue - 0.5);
+        if (!compareApproxEqual(distToHalf, 0.5, integerFeasibilityTolerance))
             return integralityConstraints[i];
-        }
     }
     throw logic_error("There is no remaining integer variable that was "
-                      "not branched on in "
-                      "BranchingRuleFirstFractional::getBranchingVariable");
+                      "not branched on");
 }

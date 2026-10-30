@@ -43,15 +43,15 @@ BestMultiplicativeApproxGNEP::BestMultiplicativeApproxGNEP(
     auto startTime = startChrono();
 
     m_tagProblemPlusInitialApproximationValue =
-        "minMultiplicativeNE-" + to_string(m_NEP->getApproximationPlayer(0));
+        "minMultiplicativeNE-" + to_string(BestMultiplicativeApproxGNEP::getApproximation());
 
-    m_NETolerance = 1e-5;
     m_minApproximationPossible = 1;
-    m_toleranceMinApproximation = 0.1;
+    m_originalMinApproximationPossible = m_minApproximationPossible;
+    m_toleranceMinApproximation = 0.01;
     m_exactNEPossible = true;
     m_bestApproximationFound = MY_INF;
     m_queueState = make_unique<DFS>();
-    m_approximationValueOfLambdaConstraintsInQueueState = getApproximation();
+    m_approximationValueOfLambdaConstraintsInQueueState = BestMultiplicativeApproxGNEP::getApproximation();
     m_currentNumberOfCutsDropped = 0;
     m_timeSpent += elapsedChrono(startTime);
     m_globalEnv->set(GRB_DoubleParam_SoftMemLimit, 3);
@@ -118,8 +118,7 @@ void BestMultiplicativeApproxGNEP::whileLoopSolve(chrono::time_point<chrono::sys
                     if (NEHandler(solution))
                         break;
                 } else {
-                    // add a cut and iterate on the same Node
-                    addCuts(solution);
+                    cutOrBranch(solution);
                 }
             } else {
                 // usual branching case
@@ -136,54 +135,65 @@ bool BestMultiplicativeApproxGNEP::checkNE(std::vector<double> const &solution) 
     return m_NEP->checkNE(solution, m_NETolerance, m_verbosity);
 }
 
-double BestMultiplicativeApproxGNEP::computeNEWithMinMultiplicativeAndFixedAdditive(
-        vector<double> const &solution,
-        int verbosity) const {
-    // binary search up to tolerance for minimum value of factor such that
-    // solution is a (factor,additiveApprox)-NE
+double BestMultiplicativeApproxGNEP::computeMinApproximationParameter(
+        vector<double> const &solution) const {
+    double const originalApprox = getApproximation();
+    double maxApprox = originalApprox;
+    double minApprox = m_minApproximationPossible;
+    double currentApprox = (maxApprox + minApprox) / 2;
+    double const binarySearchTolerance = 1e-4*(maxApprox-minApprox);
 
-    double originalMultApprox = m_NEP->getApproximationPlayer(0);
-    double maxMultApprox = originalMultApprox;
-    double minMultApprox = m_minApproximationPossible;
-    double currentMultApprox = (maxMultApprox + minMultApprox) / 2;
-    double binarySearchTolerance = 1e-4*(maxMultApprox-minMultApprox);
-
-    // before binary search, try with minMultApprox because it cannot be reached in while loop
-    setApproximation(minMultApprox);
+    // before binary search, try with minApprox because it cannot be reached in while loop
+    setApproximation(minApprox);
     if (m_NEP->checkNE(solution, 1e-8, m_verbosity)) {
-        setApproximation(originalMultApprox);
-        return minMultApprox;
+        setApproximation(originalApprox);
+        return minApprox;
     }
 
-    // binary search in [minMultApprox,maxMultApprox]
-    while (maxMultApprox - minMultApprox > binarySearchTolerance) {
-        setApproximation(currentMultApprox);
+    // binary search in [minApprox,maxApprox]
+    while (maxApprox - minApprox > binarySearchTolerance) {
+        setApproximation(currentApprox);
         // tolerance for NE = 1e-8 (close to but not zero) because
         // we are looking for the best value while knowing it is an NE
         // if we used m_NETolerance it would systematically find a slightly smaller value than what is real,
         // with 1e-8 it is less impacting and still removes the problem that can occur with a tolerance of 0
         if (m_NEP->checkNE(solution, 1e-8, m_verbosity)) {
-            maxMultApprox = currentMultApprox;
+            maxApprox = currentApprox;
         } else {
-            minMultApprox = currentMultApprox;
+            minApprox = currentApprox;
         }
-        currentMultApprox = (maxMultApprox + minMultApprox) / 2;
+        currentApprox = (maxApprox + minApprox) / 2;
     }
 
     // put the original multiplicative approximation because this method is not responsible for changing it
-    setApproximation(originalMultApprox);
+    setApproximation(originalApprox);
 
-    return maxMultApprox;
+    return maxApprox;
+}
+
+double BestMultiplicativeApproxGNEP::computeNEWithMinMultiplicativeAndFixedAdditive(
+        vector<double> const &solution) const {
+    // binary search up to tolerance for minimum value of factor such that
+    // solution is a (factor,additiveApprox)-NE
+
+    if (m_verbosity >= 3)
+        cout << "computing minimum multiplicative approximation value of the NE, "
+                "given the additive approximation value" << endl;
+
+    return computeMinApproximationParameter(solution);
 }
 
 bool BestMultiplicativeApproxGNEP::NEHandler(std::vector<double> const &solution) {
     // a getApproximation()-NE has been found
     // but a potentially better delta has been found: a maxRegret-NE has been found
-    double maxRegret = computeNEWithMinMultiplicativeAndFixedAdditive(solution, 0);
+    double maxRegret = computeNEWithMinMultiplicativeAndFixedAdditive(solution);
     m_approximationValueOfLambdaConstraintsInQueueState = maxRegret;
 
     logNEFound(maxRegret);
 
+    // TODO: 'regrets' for 4th argument of incrementSolutionList
+    // can be computed player by player in a similar way as
+    // with method computeNEWithMinMultiplicativeAndFixedAdditive
     m_nodeSelector->incrementSolutionList(m_NEP,
                                           solution,
                                           computeSocialWelfare(m_node->getSolution()),
@@ -207,51 +217,46 @@ void BestMultiplicativeApproxGNEP::logNEFound(double maxRegret) const {
     }
 }
 
-bool BestMultiplicativeApproxGNEP::checkAndChangeApproximation(double maxRegret) {
+bool BestMultiplicativeApproxGNEP::checkAndChangeApproximation(double const maxRegret) {
     m_NEFound = true;
     m_bestApproximationFound = maxRegret;
     // stopping when range approximationValue < tolerance:
     // in case bestApproximationFound - minApproximationPossible == tolerance, use m_exactNEPossible:
     // if an exact NE is still possible, continue. Else, stop
     if (m_bestApproximationFound - m_minApproximationPossible <= m_toleranceMinApproximation and
-        (!m_exactNEPossible or compareApproxEqual(maxRegret, 1))) {
+        (!m_exactNEPossible or compareApproxEqual(maxRegret, m_originalMinApproximationPossible))) {
         if (m_verbosity >= 1) {
-            cout << "stopping because best delta-NE possible is found (up to "
+            cout << "stopping because best approximate NE possible is found (up to "
                  << m_toleranceMinApproximation << ")" << endl << endl;
         }
         return true;
         // the else case is treated later on as a special case to try to find an exact NE
     } else {
-        auto startSaveQueue = startChrono();
-        // currentApproximation is not the best delta that one can hope.
+        auto const startSaveQueue = startChrono();
+        // currentApproximation is not the best approximation that one can hope.
         // reduce its value, save queue state, set reuseNode to true to not close the current node
+        //TODO: set new approximationValue to arithmetic or geometric mean?
         setApproximation((m_bestApproximationFound + m_minApproximationPossible)/2);
         // special case: try 1-NE if delta is sufficiently close to 1
         if (m_bestApproximationFound - m_minApproximationPossible <= m_toleranceMinApproximation and
             m_exactNEPossible) {
-            setApproximation(1);
+            setApproximation(m_originalMinApproximationPossible);
         }
 
         if (m_algorithmVariant == "reuseTreeSearch" or m_algorithmVariant == "reuseWithoutCuts") {
 
-            if (m_algorithmVariant == "reuseTreeSearch") {
-                // adapt constraints of the root node involving lambda with the new approximationValue
-                adaptLambdaConstraints(false);
-            } else if (m_algorithmVariant == "reuseWithoutCuts") {
-                if (m_globalCutSwitch == 1) {
-                    // all cuts are in the root node subproblem
-                    // reset root node without changing nodeSelector
-                    // change lambda constraints and remove cuts
-                    adaptLambdaConstraints(true);
-                    // m_rootNode->setSubproblem(m_NEP->buildOptimizationProblem());
-                } else {
-                    throw runtime_error("reuseWithoutCuts for local cuts not implemented");
-                    // implementation: go through all nodes and hidden nodes of the tree and reset m_cuts
-                }
-            }
-
             // temporarily add current node so that it is copied with the remaining unexplored nodes
             m_nodeSelector->incrementNodeList(m_node->clone());
+
+            if (m_algorithmVariant == "reuseTreeSearch") {
+                // adapt constraints of the root node involving lambda with the new approximationValue
+                adaptTreeSearchToNewApproximation(false);
+            } else if (m_algorithmVariant == "reuseWithoutCuts") {
+                adaptTreeSearchToNewApproximation(true);
+                // empty cuts of m_node separately because it is only a copy that is in the node list
+                m_node->emptyCuts();
+            }
+
             m_queueState = m_nodeSelector->clone();
             m_nodeSelector->removeLastNode();
 
@@ -266,14 +271,16 @@ bool BestMultiplicativeApproxGNEP::checkAndChangeApproximation(double maxRegret)
                 cout << "time to save queue (" << m_queueState->nodeListSize() << " nodes)"
                         ", adapt lambda constraints and rebuild model: " << timeSaveQueue
                      << " seconds" << endl;
-                cout << m_bestApproximationFound << "-NE found, trying to find a "
-                     << getApproximation() << "-NE now" << endl;
+                cout << format("{:.{}g}", m_bestApproximationFound, getPrecisionFloatFormat(m_bestApproximationFound)) << "-NE found, trying to find a ";
+                m_NEP->printApproximation(cout);
+                cout << "-NE now" << endl;
             }
         } else if (m_algorithmVariant == "basicAlgorithm") {
             if (m_verbosity >= 1) {
                 cout << "resetting queue to root node" << endl;
-                cout << m_bestApproximationFound << "-NE found, trying to find a "
-                     << getApproximation() << "-NE now" << endl;
+                cout << format("{:.{}g}", m_bestApproximationFound, getPrecisionFloatFormat(m_bestApproximationFound)) << "-NE found, trying to find a ";
+                m_NEP->printApproximation(cout);
+                cout << "-NE now" << endl;
             }
             // rebuild root node and nodeSelector
             m_node = resetBranchingWithSolutionList();
@@ -291,13 +298,13 @@ void BestMultiplicativeApproxGNEP::noNEHandler() {
     // update min approximation value feasible
     m_minApproximationPossible = getApproximation();
 
+    logNoNEFound();
+
     // update approximation value used
     if (m_bestApproximationFound != MY_INF)
         setApproximation((m_minApproximationPossible + m_bestApproximationFound)/2);
     else
         setApproximation(m_minApproximationPossible*10);
-
-    logNoNEFound();
 
     // check if precision on best delta-NE is sufficient
     if (m_bestApproximationFound - m_minApproximationPossible <= m_toleranceMinApproximation) {
@@ -305,7 +312,9 @@ void BestMultiplicativeApproxGNEP::noNEHandler() {
             cout << "stopping because best approximation has been found up to tolerance "
              << m_toleranceMinApproximation << endl;
     } else {
-        cout << "trying to find a " << getApproximation() << "-NE" << endl;
+        cout << "trying to find a ";
+        m_NEP->printApproximation(cout);
+        cout << "-NE" << endl;
 
         if (m_algorithmVariant == "reuseTreeSearch" or m_algorithmVariant == "reuseWithoutCuts") {
             // recover queue state from best delta-NE found
@@ -316,7 +325,7 @@ void BestMultiplicativeApproxGNEP::noNEHandler() {
                 m_node = m_nodeSelector->getlastNode();
 
                 // adapt constraints of the root node involving lambda with the new approximationValue
-                adaptLambdaConstraints(false);
+                adaptTreeSearchToNewApproximation(false);
 
                 // save again queue state in case of failing to find a better delta-NE
                 m_queueState = m_nodeSelector->clone();
@@ -360,39 +369,56 @@ void BestMultiplicativeApproxGNEP::recoverQueueState() {
     m_nodeSelector = std::move(m_queueState);
 }
 
-void BestMultiplicativeApproxGNEP::adaptLambdaConstraints(bool removeCuts) const {
-    // find position of first constraint with lambda coef, all the others follow
+indexx BestMultiplicativeApproxGNEP::findFirstLambdaConstraint(vector<Constraint> const& constraints, indexx const lambdaIndexInProblem) {
     indexx posLambdaConstraint = 0;
-    auto newRootNode = m_node->getRootNode();
-    // indexx lambdaIndexInProblem = newRootNode->getSubproblem()->getNumberOfVariables()-1;
-    indexx lambdaIndexInProblem = m_NEP->getTotalNumberOfVariablesOfPlayers()+m_NEP->getNumberOfPlayer();
-    auto constraints = newRootNode->getRootNode()->getSubproblem()->getConstraints();
     while (posLambdaConstraint < constraints.size()) {
         bool isLambdaUsed = false;
         auto v = constraints[posLambdaConstraint].getAx();
-        for (indexx k = 0;k < v.size(); k++) {
-            if (v.getIndex(k) == lambdaIndexInProblem) {
+        for (indexx k = 0;k < v.size(); k++)
+            if (v.getIndex(k) == lambdaIndexInProblem)
                 isLambdaUsed = true;
-            }
-        }
-        if (isLambdaUsed) {
+        if (isLambdaUsed)
             break;
-        }
-        else
-            posLambdaConstraint++;
+        posLambdaConstraint++;
     }
+    return posLambdaConstraint;
+}
 
-    // rebuild them with the new approximation value
-    for (indexx player = 0; player < m_NEP->getNumberOfPlayer(); player++) {
+void BestMultiplicativeApproxGNEP::updateLambdaConstraints(vector<Constraint> & constraints, indexx const posLambdaConstraint) {
+    for (indexx player = 0; player < m_NEP->getNumberOfPlayer(); player++)
         constraints[posLambdaConstraint+player] = m_NEP->buildLambdaConstraint(player);
-    }
+}
+
+void BestMultiplicativeApproxGNEP::adaptNodeToNewApproximation(shared_ptr<Node> const& node, indexx lambdaIndexInProblem, bool removeCuts) {
+    auto constraints = node->getRootNode()->getSubproblem()->getConstraints();
+    indexx posLambdaConstraint = findFirstLambdaConstraint(constraints, lambdaIndexInProblem);
+
+    updateLambdaConstraints(constraints, posLambdaConstraint);
 
     if (removeCuts) {
         // global cuts are added after lambda constraints in the root node
         while (constraints.size() > posLambdaConstraint + m_NEP->getNumberOfPlayer())
             constraints.pop_back();
     }
-    newRootNode->getSubproblem()->setConstraints(constraints);
+    node->getSubproblem()->setConstraints(constraints);
+}
+
+void BestMultiplicativeApproxGNEP::adaptTreeSearchToNewApproximation(bool const removeCuts) {
+    // find position of first constraint with lambda coef, all the others follow
+    indexx lambdaIndexInProblem = m_NEP->getTotalNumberOfVariablesOfPlayers()+m_NEP->getNumberOfPlayer();
+
+    // update lambda constraints of root node + remove global cuts in subproblem of root node
+    auto newRootNode = m_node->getRootNode();
+    adaptNodeToNewApproximation(newRootNode, lambdaIndexInProblem, removeCuts);
+
+    if (!m_globalCutSwitch and removeCuts) {
+        // local cuts
+        // reset attribute m_cuts of all nodes and hidden nodes of the tree search
+        // no need to remove cuts from the subproblem attribute of those nodes
+        // because they are not reused (except for the root node)
+        m_nodeSelector->emptyAllCuts();
+    }
+
 }
 
 void BestMultiplicativeApproxGNEP::unsolvedNodeHandler(chrono::time_point<chrono::system_clock> startTime) {
@@ -415,13 +441,17 @@ void BestMultiplicativeApproxGNEP::unsolvedNodeHandler(chrono::time_point<chrono
         }
         branchingHandler();*/
     }
+    else if (m_node->getSolution().status == 10003) {
+        // Inf value in model
+        // can be produced by current approximation parameter reaching max of double values
+        throw runtime_error("subproblem errored because of infinite value in the model");
+    }
     else if (m_node->getSolution().status != 2
              and m_node->getSolution().status != 4
-             and m_node->getSolution().status != 3) {
+             and m_node->getSolution().status != 3)
         throw logic_error("stopping the algorithm because of "
                           "abnormal optimization status code " +
                           to_string(m_node->getSolution().status));
-             }
 }
 
 BestMultiplicativeBranchOutput *BestMultiplicativeApproxGNEP::returnHandler(
@@ -430,12 +460,13 @@ BestMultiplicativeBranchOutput *BestMultiplicativeApproxGNEP::returnHandler(
     string optimizationStatus = buildOptimizationStatusString(startTime, errorMsg);
     auto output = new BestMultiplicativeBranchOutput(optimizationStatus,
                                   m_nodeSelector->getSolutionList(),
-                                  m_nodeSelector->getExploredNodeNumber(),
+                                  NodeSelector::getExploredNodeNumber(),
                                   m_totalNumberOfCuts,
                                   m_timeSpent,
                                   m_timeCounters["totalCutDerivationTime"],
                                   m_node,
                                   m_antiCyclingMeasuresTaken,
+                                  m_NEBypassedIntegerFeasibility,
                                   m_exactNEPossible,
                                   m_minApproximationPossible,
                                   m_bestApproximationFound);
@@ -508,4 +539,32 @@ std::string BestMultiplicativeApproxGNEP::buildOptimizationStatusString(
     }
 
     return optimizationStatus;
+}
+
+void BestMultiplicativeApproxGNEP::checkFeasibilityAndEquilibrium(std::vector<double> const &point) const {
+    bool neFeasible = m_node->getSubproblem()->checkPointFeasibility(point);
+    if (neFeasible) {
+        cout << "point feasible for this node" << endl;
+        if (bool neTest = checkNE(point))
+            cout << "exact NE has been checked as an approximate NE in this node" << endl;
+        else
+            cout << "exact NE does not satisfy the approximate NE def in this node" << endl;
+    } else {
+        cout << "point not feasible for this node" << endl;
+    }
+}
+
+void BestMultiplicativeApproxGNEP::handleCycling(std::vector<double> const &solution) {
+    // if an NE was found last node solve, we don't need to check for cycling
+    // because the NE condition cuts changed and thus the cuts derived too
+    if (m_nodeSelector->getSolutionList().empty())
+        BranchAndCutForGNEP::handleCycling(solution);
+    else {
+        auto lastNE = m_nodeSelector->getSolutionList().back().NE;
+        // produce solution trimmed from non-strategy profile variables (proxy variables and lambda variable)
+        vector<double> strategyProfile = {solution.begin(), solution.begin()+m_NEP->getTotalNumberOfVariablesOfPlayers()};
+
+        if (!compareApproxEqual(strategyProfile, lastNE))
+            BranchAndCutForGNEP::handleCycling(solution);
+    }
 }

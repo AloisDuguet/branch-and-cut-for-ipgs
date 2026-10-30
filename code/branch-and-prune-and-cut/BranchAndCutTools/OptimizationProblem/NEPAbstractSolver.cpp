@@ -35,8 +35,11 @@ vector<double> NEPAbstractSolver::getBestResponseWithOnlyPlayerVariables(
     return realBestResponse;
 }
 
-
 std::shared_ptr<OptimizationProblem> NEPAbstractSolver::buildOptimizationProblem() {
+    return nullptr;
+}
+
+std::shared_ptr<OptimizationProblem> NEPAbstractSolver::buildOptimizationProblemMibS() {
     return nullptr;
 }
 
@@ -136,9 +139,9 @@ indexx NEPAbstractSolver::getEtaIndex(indexx player) const {
     return -1;
 }
 
-double NEPAbstractSolver::getApproximation() const {
+vector<double> NEPAbstractSolver::getApproximation() const {
     cout << "NEPAbstractSolver::getApproximation() is a virtual function, it does nothing" << endl;
-    return 0.0;
+    return {};
 }
 
 double NEPAbstractSolver::getApproximationPlayer(indexx player) const {
@@ -152,6 +155,10 @@ void NEPAbstractSolver::setApproximation(double delta) {
 
 void NEPAbstractSolver::setApproximationPlayer(double delta, indexx player) {
     cout << "NEPAbstractSolver::setApproximationPlayer() is a virtual function, it does nothing" << endl;
+}
+
+void NEPAbstractSolver::setAdditiveApproximationPlayer(double delta, indexx player) {
+    cout << "NEPAbstractSolver::setAdditiveApproximationPlayer() is a virtual function, it does nothing" << endl;
 }
 
 void NEPAbstractSolver::printApproximation(ostream &os) const {
@@ -179,6 +186,10 @@ void NEPAbstractSolver::setPositiveResponses(bool b) {
     cout << "NEPAbstractSolver::setPositiveResponses is a virtual function" << endl;
 }
 
+void NEPAbstractSolver::checkSignNodeValue(shared_ptr<Node> const& node) const {
+    cout << "NEPAbstractSolver::getPositiveResponses is a virtual function" << endl;
+}
+
 Constraint NEPAbstractSolver::buildLambdaConstraint(indexx player) const {
     cout << "NEPAbstractSolver::buildLambdaConstraint is a virtual function" << endl;
     return {};
@@ -199,6 +210,11 @@ double NEPAbstractSolver::getMultiplicativeApproximationPlayer(indexx player) co
 double NEPAbstractSolver::getAdditiveApproximationPlayer(indexx player) const {
     cout << "NEPAbstractSolver::getAdditiveApproximationPlayer is a virtual function" << endl;
     return -1;
+}
+
+std::vector<double> NEPAbstractSolver::getAdditiveApproximation() const {
+    cout << "NEPAbstractSolver::getAdditiveApproximationPlayer is a virtual function" << endl;
+    return {};
 }
 
 

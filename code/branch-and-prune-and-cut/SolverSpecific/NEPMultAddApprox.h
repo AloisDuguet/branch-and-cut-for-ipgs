@@ -22,10 +22,13 @@ public:
     void printApproximation(std::ostream& os) const override;
 
     // return the additive terms defining the approximate NE
-    double getAdditiveApproximationPlayer(indexx player) const override;
+    [[nodiscard]] double getAdditiveApproximationPlayer(indexx player) const override;
+    [[nodiscard]] std::vector<double> getAdditiveApproximation() const override;
+
+    void setAdditiveApproximationPlayer(double delta, indexx player) override;
 
     // return the multiplicative terms defining the approximate NE
-    double getMultiplicativeApproximationPlayer(indexx player) const override;
+    [[nodiscard]] double getMultiplicativeApproximationPlayer(indexx player) const override;
 
     // print the type of equilibria searched
     void printEquilibriaSearched(std::ostream& os) const override;

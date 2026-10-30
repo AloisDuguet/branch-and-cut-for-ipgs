@@ -33,6 +33,7 @@ Node::Node() {
     m_subproblem = shared_ptr<OptimizationProblem>();
     m_isSolved = false;
     m_solution = {};
+    m_variableBounds = {};
 }
 
 Node::~Node() = default;
@@ -50,6 +51,7 @@ Node::Node(shared_ptr<Node> const& ptrnode,
     m_subproblem = shared_ptr<OptimizationProblem>();
     m_isSolved = false;
     m_solution = {};
+    m_variableBounds = {};
 }
 
 void Node::setNodeNumber(int const nodeNumber) {
@@ -148,7 +150,7 @@ void Node::buildModel() {
 }
 
 void Node::addCutToModel() const {
-    m_subproblem->AddConstraint(m_cuts[m_cuts.size()-1]);
+    m_subproblem->addConstraint(m_cuts[m_cuts.size()-1]);
 }
 
 
@@ -161,7 +163,15 @@ shared_ptr<GRBModel> Node::solveModel(shared_ptr<GRBEnv> const& globalEnv,
     return {};
 }
 
-std::shared_ptr<GRBModel> Node::checkPointFeasibility(
+void Node::writeMibSFiles(
+    std::shared_ptr<GRBEnv> const& globalEnv,
+    double solverTimeLimit,
+    int verbosity,
+    bool activateNumericFocus, string const& instanceName) {
+    cout << "entering Node::writeMibSFiles but it does nothing" << endl;
+}
+
+shared_ptr<GRBModel> Node::checkPointFeasibility(
         std::vector<double> const &point,
         std::shared_ptr<GRBEnv> const &globalEnv,
         double solverTimeLimit,
@@ -180,6 +190,9 @@ void Node::setUnsolved() {
     m_isSolved = false;
 }
 
+void Node::setSolved() {
+    m_isSolved = true;
+}
 
 void Node::printSolution() const {
     cout << m_solution.solution << endl;
@@ -218,20 +231,29 @@ vector<Cut> Node::getCuts() const {
     return m_cuts;
 }
 
+void Node::emptyCuts() {
+    m_cuts = {};
+}
+
+
 void Node::addCutToRootNode(Cut const& cut) {
-    getRootNode()->getSubproblem()->AddConstraint(cut);
+    getRootNode()->getSubproblem()->addConstraint(cut);
 }
 
 void Node::addCut(Cut const& cut, bool globalCutSwitch) {
     // adds a cut to the current problem,
     // ie the problem that will be solved next iteration
-    m_subproblem->AddConstraint(cut);
+    m_subproblem->addConstraint(cut);
     if (!globalCutSwitch) {
         // adds a cut to the list of cuts of this node
         m_cuts.push_back(cut);
     }
     else {
-        // adds a cut to the root node problem
+        // adds a cut to the model of the root node problem
+        // and not to the attribute m_cuts because of the way
+        // buildModel() is implemented; or else the following
+        // call to buildModel() for child nodes would have
+        // multiple times the global cuts
         addCutToRootNode(cut);
     }
 }
@@ -251,6 +273,7 @@ Constraint Node::getConstraintFromRootNode(indexx const& index) const {
 shared_ptr<Node> Node::clone() {
     auto node = make_shared<Node>(*this);
     node->setSubproblem(m_subproblem->clone());
+
     return node;
 }
 
@@ -349,5 +372,121 @@ void Node::printConstraintsSatisfaction() const {
     // check that the node was solved
     if (m_solution.status == 2) {
         m_subproblem->printConstraintsAndLhsEval(m_solution.solution);
+    }
+}
+
+std::vector<VariableBound> Node::getVariableBounds() {
+    return m_variableBounds;
+}
+
+Bounds Node::computeVariableBounds(indexx i, vector<Constraint> const& branchingConstraints) {
+    // using max bounds [-1e100,1e100] to get a finite range instead of the ideal [-MY_INF,MY_INF]
+    // because some models may only have implicit bounds for variables and we need finite bounds here
+    int lb = static_cast<int>(-1e100), ub = static_cast<int>(1e100);
+    int cpt = -1;
+    for (Constraint const& constraint : branchingConstraints) {
+        cpt++;
+        if (!constraint.isIntegerBranchingConstraint()) {
+            cout << constraint << endl;
+            throw logic_error("the constraint above is not an integer branching constraint");
+        }
+        if (constraint.getAx().getIndex(0) == i) {
+            int b = static_cast<int>(constraint.getB());
+            double coef = constraint.getAx().getValue(0);
+            if (coef == 1) {
+                if (ub > b) {
+                    ub = b;
+                }
+            }
+            else if (coef == -1) {
+                if (lb < -b) {
+                    lb = -b;
+                }
+            }
+            else {
+                cout << constraint << endl;
+                throw logic_error("non integer branching constraint used to compute bound");
+            }
+        }
+    }
+    if (lb == -1e100 or ub == 1e100)
+        throw logic_error("getting finite bounds of integer variable failed");
+    return Bounds(lb, ub);
+}
+
+std::vector<Constraint> Node::getAllBranchingConstraints() const {
+    vector<Constraint> branchingConstraints = {};
+    shared_ptr<Node> currentNode = make_shared<Node>(*this);
+    if (m_branch.getAx().size() > 0)
+        branchingConstraints.push_back(m_branch);
+    while (currentNode->getFatherNode()) {
+        currentNode = currentNode->getFatherNode();
+        if (currentNode->m_branch.getAx().size() > 0)
+            branchingConstraints.push_back(currentNode->m_branch);
+    }
+    return branchingConstraints;
+}
+
+vector<Constraint> Node::getBoundingConstraints() const {
+    vector<Constraint> allBoundingConstraints = getAllBranchingConstraints();
+    auto nodeConstraints = m_subproblem->getConstraints();
+
+    // check which variables are nonnegative
+    vector<bool> areVariablesNonnegativ;
+    for (indexx i = 0; i < m_subproblem->getNumberOfVariables(); i++) {
+        auto const con = Constraint({{-1}, {i}}, {}, 0);
+        if (find(nodeConstraints.begin(), nodeConstraints.end(), con) != nodeConstraints.end()) {
+            areVariablesNonnegativ.push_back(true);
+            allBoundingConstraints.push_back(con);
+        }
+        else
+            areVariablesNonnegativ.push_back(false);
+    }
+
+    // fill in allBoundingConstraints
+    for (auto const& constraint : nodeConstraints) {
+        if (constraint.isUpperBoundProof(areVariablesNonnegativ)) {
+            auto upperBoundConstraints = constraint.extractUpperBoundConstraints();
+            auto indices = constraint.getAx().getIndices();
+
+            allBoundingConstraints.insert(
+                allBoundingConstraints.end(),
+                upperBoundConstraints.begin(),
+                upperBoundConstraints.end());
+        }
+    }
+    return allBoundingConstraints;
+}
+
+void Node::initializeVariableBounds() {
+    // reset variableBounds in case the problem is completely different
+    m_variableBounds = {};
+
+    auto constraints = getBoundingConstraints();
+    vector<VariableBound> variableBounds;
+    vector<indexx> integralityConstraints = getSubproblem()->getIntegralityConstraints();
+    for (indexx const i : integralityConstraints) {
+        Bounds const bounds = computeVariableBounds(i, constraints);
+        // cout << "variable " << i << " has bounds " << bounds.lb << ", " << bounds.ub << endl;
+        m_variableBounds.push_back(VariableBound(i, bounds));
+    }
+}
+
+void Node::updateVariableBound(Constraint const& branch) {
+    if (branch != Constraint({}, {}, 0)) {
+        if (!branch.isIntegerBranchingConstraint())
+            throw logic_error("updateVariableBound should only be called with a branching constraint");
+        indexx variableIndex = branch.getAx().getIndex(0);
+        double b = branch.getB();
+        double coef = branch.getAx().getValue(0);
+        for (auto [ind, bounds] : m_variableBounds) {
+            if (ind == variableIndex) {
+                if (coef > 0)
+                    bounds.ub = min(bounds.ub, static_cast<int>(ceil(b)));
+                else
+                    bounds.lb = min(bounds.lb, static_cast<int>(floor(-b)));
+                break;
+            }
+        }
     }
 }

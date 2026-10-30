@@ -16,6 +16,19 @@ double intersectionRayHalfspace(
     double tolerance = 1e-10,
     int verbosity = 0);
 
+std::vector<double> getVector(Eigen::RowVectorXd const& v);
+
+double linearEquationFromQuadraticConstraint(double linearTerm,
+                                             double constantTerm,
+                                             double tolerance);
+double intersectionRayLipschitzNEFreeSetImplementationGame(
+    std::vector<double> const &x,
+    Eigen::RowVectorXd const &ray,
+    double lipschitzConstant,
+    double evalObjective,
+    indexx xiIndex,
+    int verbosity);
+
 double intersectionRayQuadraticCurve(
     std::vector<double> const& point,
     Eigen::RowVectorXd const& direction,

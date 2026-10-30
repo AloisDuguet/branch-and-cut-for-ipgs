@@ -32,12 +32,28 @@ public:
     // print IIS of model
     void printIIS(std::shared_ptr<GRBModel> const& model, std::vector<double> const& point);
 
+    // build gurobi model
+    std::shared_ptr<GRBModel> buildGurobiModel(std::shared_ptr<GRBEnv> const& globalEnv,
+                                               double solverTimeLimit,
+                                               int verbosity,
+                                               int thresholdLogging,
+                                               bool activateNumericFocus,
+                                               std::vector<GRBVar>& variables,
+                                               bool relaxIntegrality = true);
+
     // uses Gurobi to solve subproblem
     std::shared_ptr<GRBModel> solveModel(std::shared_ptr<GRBEnv> const& globalEnv,
                                          double solverTimeLimit,
                                          int verbosity,
                                          bool activateNumericFocus,
                                          double feasibilityTol = 1e-6) override;
+
+    // write .mps and .aux file for MibS to solve the bilevel problem
+    void writeMibSFiles(std::shared_ptr<GRBEnv> const& globalEnv,
+                        double solverTimeLimit,
+                        int verbosity,
+                        bool activateNumericFocus,
+                        std::string const& instanceName = "nodeModel") override;
 
     // uses Gurobi to determine feasibility of point for subproblem
     std::shared_ptr<GRBModel> checkPointFeasibility(std::vector<double> const& point, std::shared_ptr<GRBEnv> const& globalEnv, double solverTimeLimit, int verbosity, double feasibilityTol = 1e-6) override;

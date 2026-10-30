@@ -6,6 +6,8 @@
 
 #include "CutInformation.h"
 #include "GameParserAndBuilder.h"
+#include "LipschitzComputation.h"
+#include "intersectionRayHalfspace.h"
 
 using namespace std;
 
@@ -24,11 +26,15 @@ NEPMultiplicativeApprox::NEPMultiplicativeApprox(
 
     // initialize positiveResponses with false.
     // it will be set properly later on by the algorithm
-    m_positiveResponses = false;
+    m_nonnegativeResponses = false;
 }
 
 double NEPMultiplicativeApprox::getApproximationPlayer(indexx player) const {
     return m_factor[player];
+}
+
+vector<double> NEPMultiplicativeApprox::getApproximation() const {
+    return m_factor;
 }
 
 void NEPMultiplicativeApprox::setApproximationPlayer(double approximation, indexx player) {
@@ -43,9 +49,9 @@ void NEPMultiplicativeApprox::print(ostream& os) const {
 void NEPMultiplicativeApprox::printApproximation(ostream &os) const {
     os << "(";
     for (auto it = m_factor.begin(); it != m_factor.end()-1; ++it) {
-        os << *it << ",";
+        os << format("{:.{}g}", *it, getPrecisionFloatFormat(*it)) << ",";
     }
-    os << m_factor[getNumberOfPlayer()-1] << ")";
+    os << format("{:.{}g}", m_factor[getNumberOfPlayer()-1], getPrecisionFloatFormat(m_factor[getNumberOfPlayer()-1])) << ";";
 }
 
 void NEPMultiplicativeApprox::printEquilibriaSearched(ostream &os) const {
@@ -188,17 +194,17 @@ Constraint NEPMultiplicativeApprox::buildLambdaConstraint(indexx player) const {
         // 1/C_i * pi_i(x)
         auto cObj = m_bestResponseProblems[player]->getC();
         for (indexx i = 0; i < cObj.size(); i++) {
-            if (m_positiveResponses) // positive best responses -> 1/C * pi_i(x)
+            if (m_nonnegativeResponses) // nonnegative best responses -> 1/C * pi_i(x)
                 linearValues.push_back(cObj.getValue(i)/approximationValue);
-            else // negative best responses -> C * pi_i(x)
+            else // nonpositive best responses -> C * pi_i(x)
                 linearValues.push_back(cObj.getValue(i)*approximationValue);
             linearIndices.push_back(cObj.getIndex(i));
         }
         auto QObj = m_bestResponseProblems[player]->getQ();
         for (indexx i = 0; i < QObj.size(); i++) {
-            if (m_positiveResponses) // positive best responses -> 1/C * pi_i(x)
+            if (m_nonnegativeResponses) // nonnegative best responses -> 1/C * pi_i(x)
                 quadValues.push_back(QObj.getValue(i)/approximationValue);
-            else // negative best responses -> C * pi_i(x)
+            else // nonpositive best responses -> C * pi_i(x)
                 quadValues.push_back(QObj.getValue(i)*approximationValue);
             quadRowIndices.push_back(QObj.getColIndex(i));
             quadColIndices.push_back(QObj.getRowIndex(i));
@@ -206,9 +212,9 @@ Constraint NEPMultiplicativeApprox::buildLambdaConstraint(indexx player) const {
     }
     else {
         // 1/C_i * xi_i
-        if (m_positiveResponses) // positive best responses -> 1/C * xi_i
+        if (m_nonnegativeResponses) // nonnegative best responses -> 1/C * xi_i
             linearValues.push_back(1/approximationValue);
-        else // negative best responses -> C * xi_i
+        else // nonpositive best responses -> C * xi_i
             linearValues.push_back(approximationValue);
         linearIndices.push_back(getXiIndex(player));
     }
@@ -289,7 +295,7 @@ bool NEPMultiplicativeApprox::checkPlayerNECondition(
                           m_factor[player]*bestResponseValue,
                           tolerance)) {
             return true;
-                          }
+        }
     }
     else {
         // definition of NE uses m_factor[player] <= 1
@@ -459,6 +465,50 @@ vector<Constraint> NEPMultiplicativeApprox::getNEFreeSetXiConvex(
 std::vector<Constraint> NEPMultiplicativeApprox::getNEFreeSetXiLipschitz(
         indexx player,
         vector<double> const &point) {
+    // one constraint:
+    // xi_i + L_i ||x-xstar||_2 < pi_i(xstar)
+
+    // compute local lipschitz constants
+    indexx const xiPlayerIndex = getXiIndex(player);
+    double const numerator = evalResponseValue(player, point) - point[xiPlayerIndex];
+    m_lipschitzConstants[player] = computeLocalLipschitzConstantImplementationGame(
+        player,
+        m_instanceObject,
+        m_bestResponseProblems,
+        point,
+        numerator);
+
+    // everything is squared so that the square root disappears:
+    // ||x-xstar||_2^2 < (pi_i(xstar) - xi_i)^2 / L_i^2
+    // written in the form a_x x + a_xi xi_i + x Q_x x + xi_i Q_xi xi_i <= b:
+    // a_x = -2 xstar
+    // a_xi = 2 pi_i(xstar) / L_i^2
+    // Q_x = Id
+    // Q_xi = -1/L_i^2 Id
+    // b = -xstar*xstar + pi_i(xstar)^2/L_i^2
+    double const L_i = m_lipschitzConstants[player];
+    cout << "lipschitz constant of player " << player << " is " << L_i << endl;
+    double const pi_i_xstar = evalResponseValue(player, point);
+    MySparseVector a;
+    MySparseMatrix Q;
+    double b = 0;
+    // x part
+    for (indexx k = 0; k < getTotalNumberOfVariablesOfPlayers(); k++) {
+        a.addCoefficient(-2*point[k], k);
+        Q.addCoefficient(1, k, k);
+        b += -point[k]*point[k];
+    }
+    // xi part
+    a.addCoefficient(2*pi_i_xstar/(L_i*L_i), xiPlayerIndex);
+    Q.addCoefficient(-1/(L_i*L_i), xiPlayerIndex, xiPlayerIndex);
+    b += pi_i_xstar*pi_i_xstar/(L_i*L_i);
+
+    return {{a,Q,b}};
+}
+
+std::vector<Constraint> NEPMultiplicativeApprox::getOldNEFreeSetXiLipschitz(
+        indexx player,
+        vector<double> const &point) {
     // two constraints:
     // 1) ||x-xstar||_2 < (pi_i(xstar) - xi_istar) / (1 + L_i)
     // 2) xi_i < xi_istar + (pi_i(xstar) - xi_istar) / (1 + L_i)
@@ -506,12 +556,23 @@ std::vector<Constraint> NEPMultiplicativeApprox::getNEFreeSetXiLipschitz(
     return NEFreeSet;
 }
 
+double NEPMultiplicativeApprox::intersectionForLipschitzIC(indexx player, Constraint const &constraint,
+                                                 vector<double> const &solution, Eigen::RowVectorXd const &ray) const {
+    // works only for the implementation game
+    return intersectionRayLipschitzNEFreeSetImplementationGame(
+        solution,
+        ray,
+        m_lipschitzConstants[player],
+        evalResponseValue(player, solution),
+        getXiIndex(player),
+        0);
+}
+
 vector<Cut> NEPMultiplicativeApprox::deriveICForEachPlayer(
-        shared_ptr<GRBModel> const &nodeModel,
-        vector<double> const &point,
-        string const& whichCutString,
-        double tolerance,
-        int verbosity) {
+    shared_ptr<GRBModel> const &nodeModel,
+    vector<double> const &point,
+    double tolerance,
+    int verbosity) {
     vector<Cut> cuts = {};
     int intersectionCutAlreadyComputed = 0;
     auto const setupIC = initializeSetupIC(nodeModel, verbosity);
@@ -525,16 +586,17 @@ vector<Cut> NEPMultiplicativeApprox::deriveICForEachPlayer(
         if (!testBestXiPossible(player, point, tolerance)) {
             cutForPlayer = true;
             // derive NE-free set depending on whichCutString
-            if (whichCutString == "intersectionCutsXiConcave") {
+            if (m_whichCutString == "intersectionCutsXiConcave") {
                 // cout << "concave xi cut for player " << player << endl;
                 NEFreeSet = getNEFreeSetXiConcave(player);
             }
-            if (whichCutString == "intersectionCutsXiConvex") {
+            if (m_whichCutString == "intersectionCutsXiConvex") {
                 // cout << "convex xi cut for player " << player << endl;
                 NEFreeSet = getNEFreeSetXiConvex(player, point);
             }
-            if (whichCutString == "intersectionCutsLipschitz") {
-                cout << "lipschitz xi cut for player " << player << endl;
+            if (m_whichCutString == "intersectionCutsLipschitz") {
+                if (verbosity >= 2)
+                    cout << "lipschitz xi cut for player " << player << endl;
                 NEFreeSet = getNEFreeSetXiLipschitz(player, point);
             }
             if (verbosity >= 3) {
@@ -557,7 +619,8 @@ vector<Cut> NEPMultiplicativeApprox::deriveICForEachPlayer(
                                            point,
                                            nodeModel,
                                            extremeRays,
-                                           setupIC);
+                                           setupIC,
+                                           verbosity);
             if (verbosity >= 3) {
                 cout << "intersection cut for player " << player;
                 cout << " (" << nodeModel->get(GRB_IntAttr_NumConstrs) << " constraints, ";
@@ -581,23 +644,39 @@ CutInformation NEPMultiplicativeApprox::deriveCut(
         shared_ptr<GRBModel> const &nodeModel,
         shared_ptr<OptimizationProblem> const &nodeProblem,
         int verbosity) {
-    if (whichCutString == "eqCuts") {
+    m_whichCutString = whichCutString;
+    if (m_whichCutString == "eqCuts") {
         return {deriveEquilibriumCutForEachPlayer(nodeModel, point, tolerance, verbosity),{}};
     }
-    if (whichCutString == "intersectionCutsXiConcave"
-        or whichCutString == "intersectionCutsXiConvex"
-        or whichCutString == "intersectionCutsLipschitz") {
-        return {deriveICForEachPlayer(nodeModel, point, whichCutString, tolerance, verbosity),{}};
+    if (m_whichCutString == "intersectionCutsXiConcave"
+        or m_whichCutString == "intersectionCutsXiConvex"
+        or m_whichCutString == "intersectionCutsLipschitz") {
+        return {deriveICForEachPlayer(nodeModel, point, tolerance, verbosity),{}};
     }
 
     // after all declared cut types
     throw runtime_error("Wrong input whichCutString: string '"
-                            + whichCutString + "' describing cut has not "
+                            + m_whichCutString + "' describing cut has not "
                             "been coded in NEPMultiplicativeApprox::deriveCut");
 }
 
 void NEPMultiplicativeApprox::setPositiveResponses(bool b) {
-    m_positiveResponses = b;
+    m_nonnegativeResponses = b;
+}
+
+void NEPMultiplicativeApprox::checkSignNodeValue(shared_ptr<Node> const& node) const {
+    for (auto player = 0; player < m_numberOfPlayers; player++) {
+        double playerResponseValue = evalResponseValue(player, node->getSolution().solution);
+        cout << "player " << player << " response " << playerResponseValue << endl;
+        if (m_nonnegativeResponses and playerResponseValue < 0)
+            throw logic_error("optimal node value does not satisfy the nonnegative sign: " + to_string(playerResponseValue));
+        else if (!m_nonnegativeResponses and playerResponseValue > 0) {
+            cout << node->getSolution().solution << endl;
+            cout << m_bestResponseProblems[player]->getC() << endl;
+            cout << m_bestResponseProblems[player]->getQ() << endl;
+            throw logic_error("optimal node value does not satisfy the nonpositive sign: " + to_string(playerResponseValue));
+        }
+    }
 }
 
 void NEPMultiplicativeApprox::setLipschitzConstants(

@@ -48,10 +48,10 @@ public:
     [[nodiscard]] bool isEmpty() const;
 
     // return the number of explored nodes
-    [[nodiscard]] int getExploredNodeNumber() const;
+    [[nodiscard]] static int getExploredNodeNumber();
 
     // increment the number of explored nodes
-    void incrementExploredNodeNumber();
+    static void incrementExploredNodeNumber();
 
     // build a child of rootNode with no additional constraints.
     // useful so that the root node used has a father node that is not the null pointer
@@ -59,7 +59,8 @@ public:
 
     // add 2 children nodes to nodeSelector.nodeList by branching with branchingRule
     void buildChildNodes(std::shared_ptr<BranchingRule> const& branchingRule,
-                         std::shared_ptr<Node> const& node);
+                         std::shared_ptr<Node> const& node, double integerFeasibilityTolerance,
+                         bool integerBranchingActive = false);
 
     // add a solution to the solution list
     void incrementSolutionList(std::shared_ptr<NEPAbstractSolver> const& NEP,
@@ -76,6 +77,9 @@ public:
 
     // deep copy nodeList
     std::vector<std::shared_ptr<Node>> deepCopyNodelist();
+
+    // empty all attributes cuts of nodes in nodeList
+    void emptyAllCuts();
 
     // make a deep copy of the instance, ie a deep copy of its attributes
     virtual std::unique_ptr<NodeSelector> clone();

@@ -1,20 +1,20 @@
-# Computation of exact Nash equilibria
+## Computation of exact Nash equilibria
 
-## Running
+### Running
 
 In a terminal, use the following command:<br>
 `./<main> <instance> <gameType> <algorithmVariant> <cutType> <globalCut> <enumerateNE> <modelType> <branchingRule> <timeLimit> <verbosity> <resultFilename>`<br>
 <br>
 where:
 - `main` is the path to the executable main
-- `instance` is the path to the instance including the name of the instance
+- `instance` is the path to the instance file
 - `gameType` is the name of the type of game of the instance, so that the correct parser is called to produce the (G)NEP<br>
-    possible values: `NEP-fullInteger`, `NEP-mixedInteger`, `GNEP-fullInteger`, `implementationGame`, `NEPdiscrete-Schwarze23`, ...
+    possible values: `NEP-fullInteger`, `NEP-mixedInteger`, `GNEP-fullInteger`, `implementationGame`, `NEPdiscrete-Schwarze23`, `NEP-fullInteger-linearized-in-GNEP`, see [README.md](https://gitlab.uni-trier.de/nlopt/branch-and-cut-for-ipgs/-/blob/master/instances/README.md) for the correspondance to games
 - `algorithmVariant` is the variant of the algorithm to use<br>
     possible values: `basicAlgorithm`, `cuttingBeforeBranching`<br>
-    Recommended: `basicAlgorithm`, because `cuttingBeforeBranching` is less tested, may be less efficient in general, and invalid in some cases like with `cutType` set to `intersectionCuts`
-- `cutType` is the type of cut to derive. For now only one type of cuts can be derived by the algorithm. Be careful with `intersectionCuts` as the code is not generic. It works only for models in which variable bounds are given as constraints<br>
-    possible values: `eqCuts`, `aggEqCuts`, `intersectionCuts`, `noGoodCuts`<br>
+    Recommended: `basicAlgorithm`, because `cuttingBeforeBranching` is not enough tested, may be less efficient in general, and valid only for `cutType` set to `eqCuts` or `noGoodCuts` and `methodName` to `Branch-and-Cut`
+- `cutType` is the type of cut to derive. For now only one type of cuts can be derived by the algorithm. Be careful with `intersectionCuts` as the code is not generic. It works only for models in which variable bounds are given as constraints. The cuts `noGoodCuts` are valid for games with only binary variables<br>
+    possible values: `eqCuts`, `intersectionCuts`, `noGoodCuts`<br>
     Recommended: `eqCuts` for NEP and `intersectionCuts` for GNEP
 - `globalCut` indicates if the cuts are added only in the subtree (local cuts) or everywhere in the branching tree (global cuts)<br>
     possible values: `1` for global cuts, `0` for local cuts
@@ -23,7 +23,7 @@ where:
 - `modelType` is the type of model of the node problem. The model discussed everywhere is `manyEtasModel` while a second model is only discussed in Remark 3.2<br>
     mandatory value: `manyEtasGurobi`
 - `branchingRule` is the type of rule used to branch.<br>
-    possible values: `mostFractional`, `firstFractional`, `random`
+    possible values: `mostFractional`, `firstFractional`, `random`; recommended: `mostFractional` because it is the only properly tested
 - `timeLimit` is the number of seconds given to the algorithm to return a solution<br>
     possible values: any positive value
 - `verbosity` controls the amount of information printed. The higher the number, the more information is displayed<br>
@@ -34,15 +34,18 @@ where:
     - `3` for more node information like solution of problems and cuts derived
     - `4` for some debug information
     - `5` for more debug information
+- `methodName` indicates which algorithm to use.
+    - `Branch-and-Cut` for the branch-and-cut developed in the preprint
+    - `MibS` to solve the reformulation of the game into a bilevel problem via the mixed-integer linear bilevel solver [MibS](https://github.com/coin-or/MibS). Not all game types can be solved with MibS. In addition, most other options are useless when MibS is selected as `methodName`
 - `resultFilename` indicates in which file the one-line result of the solve is written. The relative path to this file starts from the folder of the executable.<br>
     possible values: `noWriteResult` to not write the one-line result in a file, any other value writes in file `resultFilename`
 
-### Forbidden parameters or combinations
+#### Forbidden parameters or combinations
 
-Some combinations of parameters are not allowed, such as `eqCuts` and `GNEP-fullInteger` because the equilibrium cuts are only valid in NEP. Pay attention to the choice of `gameType`, `cutType`, `globalCut` and `modelType` for such combinations.
+Some combinations of parameters are not allowed, such as `eqCuts` and `GNEP-fullInteger` because the equilibrium cuts are only valid in NEP. Pay attention to the choice of `gameType`, `cutType`, `globalCut`, `methodName` for such combinations.
 Many forbidden combinations have been coded so that an error is issued if it is used. You can find in function `checkValidArguments` of file `BranchAndCutForGNEP.cpp` a list of forbidden parameters or pairs of parameters and why they are forbidden.
 
-### Preferred combinations
+#### Preferred combinations
 
 In general:<br>
 `algorithmVariant` = "basicAlgorithm"<br>
@@ -57,17 +60,17 @@ For integer GNEPs (mandatory parameters):<br>
 `cutType` = "intersectionCuts"<br>
 `globalCut` = false
 
-### Examples
+#### Examples
 
 Integer GNEP:<br>
 Open a terminal in folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` and run the following command line<br>
-`./build/main ../../instances/GNEP_knapsack_instances/2-5-2-weakcorr-2.txt GNEP-fullInteger basicAlgorithm intersectionCuts 0 0 manyEtasGurobi mostFractional 3600 1 resultFile.txt`
+`./cmake-build-debug/main ../../instances/GNEP_knapsack_instances/2-5-2-weakcorr-2.txt GNEP-fullInteger basicAlgorithm intersectionCuts 0 0 manyEtasGurobi mostFractional 3600 1 Branch-and-Cut resultFile.txt`
 
 Mixed-integer NEP:<br>
 Open a terminal in folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` and run the following command line<br>
-`./build/main ../../instances/NEP_knapsack_instances/2-5-5-weakcorr-2.txt NEP-mixedInteger basicAlgorithm eqCuts 1 0 manyEtasGurobi mostFractional 3600 1 noWriteResult`
+`./cmake-build-debug/main ../../instances/NEP_knapsack_instances/2-5-5-weakcorr-2.txt NEP-mixedInteger basicAlgorithm eqCuts 1 0 manyEtasGurobi mostFractional 3600 1 Branch-and-Cut noWriteResult`
 
-### Using new game models
+#### Using new game models
 
 The workflow to use the branch-and-cut algorithm is the following:
 1. instantiate an object of class `NashEquilibriumProblem` corresponding to the game model as defined in file `NashEquilibriumProblem.h`,
@@ -85,22 +88,24 @@ If one wants to use a game model that is not in an instance, one can either:
 
 After that, one has to change appropriately function `buildGameFromInstance` so that an instance of class `shared_ptr<NashEquilibriumProblem>` is created with the game model.
 
-## Experiments of the preprint [^1]
+### Experiments of the preprint [1^]
 
 There were five experiments in the preprint. To reproduce the results, from inside folder `branch-and-cut-for-ipgs/code/branch-and-prune-and-cut` do:
 1. mixed-integer knapsack NEP: for each instance in folder `../../instances/NEP_knapsack_instances` launch command<br>
-`./cmake-build-debug/main \<path-to-instance\> NEP-mixedInteger basicAlgorithm eqCuts 1 0 manyEtasGurobi mostFractional 3600 1`
+`./cmake-build-debug/main \<path-to-instance\> NEP-mixedInteger basicAlgorithm eqCuts 1 0 manyEtasGurobi mostFractional 3600 1 Branch-and-Cut`
 
 2. integer knapsack NEP: for each instance in folder `../../instances/NEP_knapsack_instances` launch command<br>
-`./cmake-build-debug/main \<path-to-instance\> NEP-fullInteger basicAlgorithm eqCuts 1 0 manyEtasGurobi mostFractional 3600 1`
+`./cmake-build-debug/main \<path-to-instance\> NEP-fullInteger algorithmVariant cutType 1 0 manyEtasGurobi mostFractional 3600 1 methodName`<br>
+with (cutType, methodName) in {(eqCuts, Branch-and-Cut), (noGoodCuts, Branch-and-Cut), (eqCuts, MibS)}
 
 3. integer knapsack GNEP: for each instance in folder `../../instances/GNEP_knapsack_instances` launch command<br>
-`./cmake-build-debug/main \<path-to-instance\> GNEP-fullInteger basicAlgorithm intersectionCuts 0 0 manyEtasGurobi mostFractional 3600 1`
+`./cmake-build-debug/main \<path-to-instance\> GNEP-fullInteger algorithmVariant intersectionCuts globalCut 0 manyEtasGurobi mostFractional 3600 1 methodName`<br>
+with (cutType, globalCut, methodName) in {(intersectionCuts, 0, Branch-and-Cut), (noGoodCuts, 1, Branch-and-Cut), (intersectionCuts, 0, MibS)}
 
 4. implementation games (integer GNEP): for each instance in folder `../../instances/implementation_games` launch command<br>
-`./cmake-build-debug/main \<path-to-instance\> implementationGame basicAlgorithm intersectionCuts 0 0 manyEtasGurobi mostFractional 3600 1`
+`./cmake-build-debug/main \<path-to-instance\> implementationGame basicAlgorithm intersectionCuts 0 0 manyEtasGurobi mostFractional 3600 1 Branch-and-Cut`
 
 5. integer NEP with quadratic objective functions: for each instance in folder `../../instances/Schwarze23DiscreteNEP` launch command<br>
-`./cmake-build-debug/main \<path-to-instance\> NEPdiscrete-Schwarze23 basicAlgorithm eqCuts 1 0 manyEtasGurobi mostFractional 3600 1`
+`./cmake-build-debug/main \<path-to-instance\> NEPdiscrete-Schwarze23 basicAlgorithm eqCuts 1 0 manyEtasGurobi mostFractional 3600 1 Branch-and-Cut`
 
 [^1]: Duguet, A., T. Harks, M. Schmidt, and J. Schwarz (2025). Branch-and-Cut for Mixed-Integer Generalized Nash Equilibrium Problems. Tech. rep. url: https://optimization-online.org/?p=30556.

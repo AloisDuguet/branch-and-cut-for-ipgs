@@ -12,8 +12,7 @@ void BestMultiplicativeAdditiveBranchOutput::oneLinePrint(
         ostream &os,
         string const& sep) const {
     MinNEPBranchOutput::oneLinePrint(os, sep);
-    os << sep;
-    os << additiveApproxFixed;
+    os << sep << additiveApproxFixed;
 }
 
 ostream& operator<<(ostream& os, BestMultiplicativeAdditiveBranchOutput const& output) {
@@ -34,12 +33,12 @@ ostream& operator<<(ostream& os, BestMultiplicativeAdditiveBranchOutput const& o
     else {
         if (output.minDeltaPossible == 1) {
             if (output.exactNEPossible)
-                os << "bounds on min factor: [1," << output.bestDeltaFound << "]" << endl;
+                os << "bounds on min factor: [1," << format("{:.{}g}", output.bestDeltaFound, getPrecisionFloatFormat(output.bestDeltaFound)) << "]" << endl;
             else
-                os << "bounds on min factor: ]1," << output.bestDeltaFound << "]" << endl;
+                os << "bounds on min factor: ]1," << format("{:.{}g}", output.bestDeltaFound, getPrecisionFloatFormat(output.bestDeltaFound)) << "]" << endl;
         }
         else
-            os << "bounds on min factor: ]" << output.minDeltaPossible << "," << output.bestDeltaFound << "]" << endl;
+            os << "bounds on min factor: ]" << format("{:.{}g}", output.minDeltaPossible, getPrecisionFloatFormat(output.minDeltaPossible)) << "," << format("{:.{}g}", output.bestDeltaFound, getPrecisionFloatFormat(output.bestDeltaFound)) << "]" << endl;
     }
 
     os << "additive approximation fixed: " << output.additiveApproxFixed << endl;

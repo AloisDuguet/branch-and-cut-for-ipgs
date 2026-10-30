@@ -23,9 +23,9 @@ void NEPMultAddApprox::print(ostream &os) const {
 void NEPMultAddApprox::printApproximation(ostream &os) const {
     os << "(";
     for (auto it = m_factor.begin(); it != m_factor.end()-1; ++it) {
-        os << *it << ",";
+        os << format("{:.{}g}", *it, getPrecisionFloatFormat(*it)) << ",";
     }
-    os << m_factor[getNumberOfPlayer()-1] << ";";
+    os << format("{:.{}g}", m_factor[getNumberOfPlayer()-1], getPrecisionFloatFormat(m_factor[getNumberOfPlayer()-1])) << ";";
     for (auto it = m_additiveApprox.begin(); it != m_additiveApprox.end()-1; ++it) {
         os << *it << ",";
     }
@@ -34,6 +34,14 @@ void NEPMultAddApprox::printApproximation(ostream &os) const {
 
 double NEPMultAddApprox::getAdditiveApproximationPlayer(indexx player) const {
     return m_additiveApprox[player];
+}
+
+vector<double> NEPMultAddApprox::getAdditiveApproximation() const {
+    return m_additiveApprox;
+}
+
+void NEPMultAddApprox::setAdditiveApproximationPlayer(double delta, indexx player) {
+    m_additiveApprox[player] = delta;
 }
 
 double NEPMultAddApprox::getMultiplicativeApproximationPlayer(indexx player) const {
@@ -48,12 +56,12 @@ void NEPMultAddApprox::printEquilibriaSearched(ostream& os) const {
 
 Constraint NEPMultAddApprox::buildLambdaConstraint(indexx player) const {
     // NEP case
-    // 1/C_i * pi_i(x) - eta_i - lambda <= add_i/C_i if positive best responses
-    // C_i * pi_i(x) - eta_i - lambda <= C_i*add_i if negative best responses
+    // 1/C_i * pi_i(x) - eta_i - lambda <= add_i/C_i if nonnegative best responses
+    // C_i * pi_i(x) - eta_i - lambda <= C_i*add_i if nonpositive best responses
 
     // GNEP case
-    // 1/C_i * xi_i - eta_i - lambda <= add_i/C_i if positive best responses
-    // C_i * xi_i - eta_i - lambda <= C_i*add_i if negative best responses
+    // 1/C_i * xi_i - eta_i - lambda <= add_i/C_i if nonnegative best responses
+    // C_i * xi_i - eta_i - lambda <= C_i*add_i if nonpositive best responses
 
     double additiveApprox = m_additiveApprox[player]; // add_i
     double multiplicativeApprox = m_factor[player]; // C_i
@@ -70,12 +78,12 @@ Constraint NEPMultAddApprox::buildLambdaConstraint(indexx player) const {
         // linear terms
         auto cObj = m_bestResponseProblems[player]->getC();
         for (indexx i = 0; i < cObj.size(); i++) {
-            if (m_positiveResponses) {
-                // positive best responses -> 1/C_i * pi_i(x)
+            if (m_nonnegativeResponses) {
+                // nonnegative best responses -> 1/C_i * pi_i(x)
                 linearValues.push_back(cObj.getValue(i)/multiplicativeApprox);
             }
             else {
-                // negative best responses -> C_i * pi_i(x)
+                // nonpositive best responses -> C_i * pi_i(x)
                 linearValues.push_back(cObj.getValue(i)*multiplicativeApprox);
             }
             linearIndices.push_back(cObj.getIndex(i));
@@ -83,9 +91,9 @@ Constraint NEPMultAddApprox::buildLambdaConstraint(indexx player) const {
         // quadratic terms
         auto QObj = m_bestResponseProblems[player]->getQ();
         for (indexx i = 0; i < QObj.size(); i++) {
-            if (m_positiveResponses) // positive best responses -> 1/C_i * pi_i(x)
+            if (m_nonnegativeResponses) // nonnegative best responses -> 1/C_i * pi_i(x)
                 quadValues.push_back(QObj.getValue(i)/multiplicativeApprox);
-            else // negative best responses -> C_i * pi_i(x)
+            else // nonpositive best responses -> C_i * pi_i(x)
                 quadValues.push_back(QObj.getValue(i)*multiplicativeApprox);
             quadRowIndices.push_back(QObj.getColIndex(i));
             quadColIndices.push_back(QObj.getRowIndex(i));
@@ -93,17 +101,17 @@ Constraint NEPMultAddApprox::buildLambdaConstraint(indexx player) const {
     }
     else {
         // GNEP case
-        if (m_positiveResponses) {
-            // positive best responses -> 1/C_i * xi_i
+        if (m_nonnegativeResponses) {
+            // nonnegative best responses -> 1/C_i * xi_i
             linearValues.push_back(1/multiplicativeApprox);
         }
-        else // negative best responses -> C_i * xi_i
+        else // nonpositive best responses -> C_i * xi_i
             linearValues.push_back(multiplicativeApprox);
         linearIndices.push_back(getXiIndex(player));
     }
 
     // constant term
-    if (m_positiveResponses) // add_i/C_i
+    if (m_nonnegativeResponses) // add_i/C_i
         rhs += additiveApprox/multiplicativeApprox;
     else // C_i*add_i
         rhs += multiplicativeApprox*additiveApprox;

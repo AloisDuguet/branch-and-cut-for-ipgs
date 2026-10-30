@@ -14,8 +14,8 @@ void MinNEPBranchOutput::oneLinePrint(
     NEPBranchOutput::oneLinePrint(os, sep);
     os << sep;
     os << exactNEPossible << sep;
-    os << minDeltaPossible << sep;
-    os << bestDeltaFound;
+    os << format("{:.{}g}", minDeltaPossible, getPrecisionFloatFormat(minDeltaPossible)) << sep;
+    os << format("{:.{}g}", bestDeltaFound, getPrecisionFloatFormat(bestDeltaFound));
 }
 
 
@@ -39,12 +39,12 @@ ostream& operator<<(ostream& os, MinNEPBranchOutput const& output) {
     else {
         if (output.minDeltaPossible == 0) {
             if (output.exactNEPossible)
-                os << "bounds on min delta: [0," << output.bestDeltaFound << "]" << endl;
+                os << "bounds on min delta: [0," << format("{:.{}g}", output.bestDeltaFound, getPrecisionFloatFormat(output.bestDeltaFound)) << "]" << endl;
             else
-                os << "bounds on min delta: ]0," << output.bestDeltaFound << "]" << endl;
+                os << "bounds on min delta: ]0," << format("{:.{}g}", output.bestDeltaFound, getPrecisionFloatFormat(output.bestDeltaFound)) << "]" << endl;
         }
         else
-            os << "bounds on min delta: ]" << output.minDeltaPossible << "," << output.bestDeltaFound << "]" << endl;
+            os << "bounds on min delta: ]" << format("{:.{}g}", output.minDeltaPossible, getPrecisionFloatFormat(output.minDeltaPossible)) << "," << format("{:.{}g}", output.bestDeltaFound, getPrecisionFloatFormat(output.bestDeltaFound)) << "]" << endl;
     }
 
     os << "anti cycling measures taken: ";

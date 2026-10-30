@@ -26,6 +26,14 @@ struct SetupIC {
     GRBConstr* constraints;
 };
 
+struct OptimizationProblemPieces {
+    int numberOfVariables;
+    MySparseVector c;
+    MySparseMatrix Q;
+    std::vector<Constraint> constraints;
+    std::vector<indexx> integralityConstraints;
+};
+
 class NEPManyEtasGurobi : public NEPAbstractSolver {
 public:
     explicit NEPManyEtasGurobi(
@@ -63,7 +71,15 @@ public:
                                  int verbosity) override;
 
     // build the root node of our algorithm
+    [[nodiscard]] OptimizationProblemPieces aggregateBestResponses() const;
     std::shared_ptr<OptimizationProblem> buildOptimizationProblem() override;
+    // build the bilevel problem for the solver MibS
+    std::shared_ptr<OptimizationProblem> buildOptimizationProblemMibS() override;
+
+    // add linear expressions with lower-level variables y_i instead of x_i but
+    // same other players' strategies x_-i to account for the lower-level problem
+    OptimizationProblemPieces completeWithLowerLevelVariables(
+        OptimizationProblemPieces &upperLevelPart);
 
     // add an equilibrium cut as in Dragotto23
     [[nodiscard]] Cut buildDisaggregatedEquilibriumCut(
@@ -74,6 +90,14 @@ public:
     [[nodiscard]] double evalNikaidoIsoda(std::vector<double> const& point,
                                           double objectiveValue,
                                           bool isSolutionInteger = true) const override;
+
+    // check for each player that the response value is worse than the best response value
+    void checkResponseValue(
+        indexx player,
+        std::vector<double> const& point,
+        double responseValue,
+        double bestResponseValue,
+        double tolerance) const;
 
     // return the differences between best response values and response values for all i
     [[nodiscard]] std::vector<double> differencesToBestResponseValues(
@@ -155,13 +179,17 @@ public:
                                             indexx numDeclaredVariables) const;
 
     // build vector alpha with the intersection of the NE-free set and the rays
-    [[nodiscard]] static std::vector<double> computeAlphaForIC(
+    [[nodiscard]] std::vector<double> computeAlphaForIC(
         MatrixXd const& extremeRays,
         indexx player,
         std::vector<double> const& solution,
         int numNonbasicVariables,
         std::vector<Constraint> const &NEFreeSet,
-        int verbosity);
+        int verbosity) const;
+
+    // debug negative roots intersectionRayQuadraticCurveImplementationGame
+    [[nodiscard]] virtual double intersectionForLipschitzIC(indexx player, Constraint const &constraint, std::vector<double> const &solution,
+                                    Eigen::RowVectorXd const &ray) const;
 
     //compute intersection cut from the vector alpha
     [[nodiscard]] static Cut computeICFromAlpha(
@@ -170,13 +198,13 @@ public:
         std::shared_ptr<GRBModel> const& model);
 
     // build intersection cut from extreme rays
-    [[nodiscard]] static Cut deriveICForOnePlayer(std::vector<Constraint> const &NEFreeSet,
+    [[nodiscard]] Cut deriveICForOnePlayer(std::vector<Constraint> const &NEFreeSet,
                                            indexx player,
                                            std::vector<double> const& solution,
                                            std::shared_ptr<GRBModel> const& model,
                                            MatrixXd const& extremeRays,
                                            SetupIC const& setupIC,
-                                           int verbosity = 0);
+                                           int verbosity = 0) const;
 
     // check that the IC derived cuts off the point wanted
     static void checkICSatisfaction(
@@ -226,11 +254,18 @@ protected:
 
     double etaLB = -1e100;
     double etaUB = 1e100;
+
+    // tag for type of cut to derive
+    std::string m_whichCutString;
 };
 
 std::ostream& operator<<(std::ostream& os, NEPManyEtasGurobi const& NEP);
 
-
-
+// get a lower-level linear term from an upper-level linear term
+MySparseVector updateLinearTermForLowerLevel(
+        MySparseVector const& ax,
+        indexx startIndex,
+        indexx endIndex,
+        int indexIncrease);
 
 #endif //NEPMANYETASGUROBI_H

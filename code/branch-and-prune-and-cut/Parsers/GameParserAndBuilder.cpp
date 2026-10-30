@@ -9,6 +9,7 @@
 
 #include "TestInstances.h"
 #include "BranchAndCutTools.h"
+#include "LipschitzComputation.h"
 
 using namespace std;
 
@@ -197,6 +198,128 @@ shared_ptr<NashEquilibriumProblem> createNEPKnapsackInstance(
             Q,
             constraints,
             integralityIndices));
+    }
+
+    // instantiate NEP
+    shared_ptr<NashEquilibriumProblem> NEP =
+        make_shared<NashEquilibriumProblem>(bestResponseProblems);
+
+    return NEP;
+}
+
+shared_ptr<NashEquilibriumProblem> createNEPKnapsackInstanceWithQuadraticTermsReformulated(
+        string const& filename) {
+    cout << "building model of NEP knapsack game with binary quadratic"
+            " terms reformulated, thus producing a GNEP" << endl;
+
+    // parse filename
+    NEPKnapsackInstance const& instance = parseNEPKnapsack(filename);
+
+    int numberOfPlayers = instance.numberOfPlayers;
+    int numberOfItems = instance.numberOfItems;
+
+    vector<int> numberOfVariablesPerPlayer = {};
+    int additionalVariablesPerPlayer = numberOfItems*(numberOfPlayers-1);
+    int variablesPerPlayer = numberOfItems*numberOfPlayers;
+    for (int player = 0; player < numberOfPlayers; player++) {
+        numberOfVariablesPerPlayer.push_back(numberOfItems+additionalVariablesPerPlayer);
+    }
+
+    // initialize vector of optimizationProblem and other things
+    vector<shared_ptr<OptimizationProblem>> bestResponseProblems = {};
+    int countNumberOfVariables = 0;
+
+    // for each player, build OptimizationProblem
+    for (int player = 0; player < numberOfPlayers; player++) {
+        // build reformulation of quadratic terms Q into additional
+        // continuous variables, linear objective terms and
+        // linear constraints mixing variables
+        // of two players (thus it creates a GNEP)
+
+        // build c, multiply all coefficients by -1 because
+        // it is a maximization problem but we will minimize it
+        vector<double> cValues = {};
+        vector<indexx> cIndices = {};
+        for (int item = 0; item < numberOfItems; item++) {
+            // minus sign for maximization
+            cValues.push_back(-instance.profits[player][item]);
+            cIndices.push_back(countNumberOfVariables++);
+        }
+        // adding linear terms coming from the reformulation
+        for (int player2 = 0; player2 < numberOfPlayers; player2++) {
+            if (player2 != player) {
+                for (int item = 0; item < numberOfItems; item++) {
+                    // minus sign for maximization
+                    cValues.push_back(-instance.interactionCoefficients[player][player2][item]);
+                    cIndices.push_back(countNumberOfVariables++);
+                }
+            }
+        }
+        MySparseVector c = {cValues, cIndices};
+
+        // build constraints
+        vector<Constraint> constraints = {};
+        // constraints for bounds of binary vectors
+        for (int item = 0; item < numberOfItems; item++) {
+            constraints.push_back({{{1.0},
+                                            {variablesPerPlayer*player+item}},
+                                            {},
+                                            1.0});
+            constraints.push_back({{{-1.0},
+                                            {variablesPerPlayer*player+item}},
+                                            {},
+                                            0.0});
+        }
+        // capacity constraint and integralityConstraints
+        vector<double> weightValues = {};
+        vector<indexx> capacityIndices = {};
+        for (int item = 0; item < numberOfItems; item++) {
+            weightValues.push_back(instance.weights[player][item]);
+            capacityIndices.push_back(variablesPerPlayer*player+item);
+        }
+        // four constraints for the reformulation of each quadratic term (by variable z for the clarity)
+        // z <= x
+        // z <= y
+        // z >= 0
+        // z >= x + y - 1
+        int countAdditionalVariable = 0;
+        for (int player2 = 0; player2 < numberOfPlayers; player2++) {
+            if (player2 != player) {
+                for (int item = 0; item < numberOfItems; item++) {
+                    indexx zVariable = variablesPerPlayer*player+numberOfItems+countAdditionalVariable;
+                    indexx xVariable = variablesPerPlayer*player+item;
+                    indexx yVariable = variablesPerPlayer*player2+item;
+                    constraints.push_back({{
+                            {1,-1},
+                            {zVariable, xVariable},
+                        }, {}, 0});
+                    constraints.push_back({{
+                            {1,-1},
+                            {zVariable,yVariable}
+                        },{}, 0});
+                    constraints.push_back({{
+                            {-1},
+                            {zVariable}
+                        }, {}, 0});
+                    constraints.push_back({{
+                            {-1,1,1},
+                            {zVariable, xVariable, yVariable}
+                        }, {}, 1});
+                    countAdditionalVariable++;
+                }
+            }
+        }
+        constraints.push_back({{weightValues, capacityIndices},
+                                        {},
+                                        static_cast<double>(instance.capacities[player])});
+
+        // build OptimizationProblem, reuse capacityIndices as integrality variable indices
+        bestResponseProblems.push_back(make_shared<OptimizationProblem>(
+            numberOfVariablesPerPlayer[player],
+            c,
+            MySparseMatrix({},{},{}),
+            constraints,
+            capacityIndices));
     }
 
     // instantiate NEP
@@ -611,38 +734,6 @@ shared_ptr<NashEquilibriumProblem> createSchwarze23DiscreteNEPInstance(
     return NEP;
 }
 
-vector<double> computeAllLipschitzConstantImplementationGame(
-        string const& filename,
-        vector<shared_ptr<OptimizationProblem>> const& bestResponseProblems) {
-    auto [numberOfPlayers,
-        numberOfNodes,
-        numberOfEdges,
-        network,
-        capacities,
-        sourceSinks,
-        U,
-        demands,
-        pMax,
-        u] = parseImplementationGameGNEP(filename);
-
-    // vector with the lipschitz constants for each player
-    vector<double> lipschitzVector;
-
-    for (indexx player = 0; player < numberOfPlayers+1; player++) {
-        lipschitzVector.push_back(computeLipschitzConstantImplementationGame(
-            player,
-            bestResponseProblems[player],
-            numberOfEdges,
-            numberOfPlayers,
-            U,
-            capacities,
-            pMax,
-            u));
-    }
-
-    return lipschitzVector;
-}
-
 double computeLocalLipschitzConstantImplementationGame(
         indexx player,
         GNEPImplementationGameInstance const& gameInstance,
@@ -677,88 +768,9 @@ double computeLocalLipschitzConstantImplementationGame(
                 "local",
                 point,
                 ballSize);
+        // cout << "lipschitz: " << lipschitzConstant << " with ballSize: " << ballSize << endl;
     }
-    while(numerator / (1+lipschitzConstant) > ballSize);
-
-    return lipschitzConstant;
-}
-
-double getMaxTermLipschitzImplementationGame(double const uValue, double pmin, double pmax) {
-    pmin = max(0.0,pmin);
-    return max(abs(pmin - uValue), abs(pmax - uValue));
-}
-
-double computeLipschitzConstantImplementationGame(
-        indexx const player,
-        shared_ptr<OptimizationProblem> const& playerProblem,
-        int numberOfEdges,
-        int numberOfRealPlayers,
-        vector<vector<double>> const& U,
-        vector<vector<double>> const& capacities,
-        vector<double> const& pMax,
-        vector<double> const& u,
-        string const& mode,
-        vector<double> const& point,
-        double ballSize) {
-
-    if (mode != "global" and mode != "local")
-        throw logic_error("mode must be 'global' or 'local'");
-
-    double lipschitzConstant = 0;
-    double pmax;
-    // formula of the real players is different from the one of the last player (central authority)
-    if (player != numberOfRealPlayers) {
-        // pi_i(x,p) = (p-U_i)x_i
-        // formula derived from the gradient of pi_i
-        // L_i = max_(x,p) sqrt(sum_{e in E} (p_e-U_{i,e})^2 + x_{i,e}^2)
-        for (indexx edge = 0; edge < numberOfEdges; edge++) {
-            indexx variableIndex = player*(numberOfEdges+1) + edge;
-            // (p_e-U_{i,e})^2, p_e in [0,pMax_e]
-            if (mode == "global")
-                pmax = pMax[edge];
-            else if (mode == "local") {
-                indexx startingIndexCentralAuthority = numberOfRealPlayers*(numberOfEdges+1);
-                pmax = point[startingIndexCentralAuthority+edge]+ballSize;
-                pmax = min(pmax, pMax[edge]);
-            }
-            double maxTerm = getMaxTermLipschitzImplementationGame(U[edge][player], 0, pmax);
-            // double maxTerm = max(abs(-U[edge][player]),
-            // abs(pMax[edge] - U[edge][player]));
-            lipschitzConstant += maxTerm*maxTerm;
-            // x_{i,e}^2, x_{i,e} in [0,capacities_{i,e}]
-            lipschitzConstant += capacities[edge][player]*capacities[edge][player];
-        }
-    } else {
-        // player is central authority
-        // pi_N(x,p) = (u-l(x))p
-        // where l(x) = (l_1(x),...,l_numberOfEdges(x))
-        // and l_e(x) = sum_i x_{i,e}
-        // formula derived from the gradient of pi_N
-        // L_i = sqrt(sum_e (N*pMax_e^2 + max(abs(u_e), abs(u_e-l_e^max(x)))^2))
-        for (indexx edge = 0; edge < numberOfEdges; edge++) {
-            // N*pMax_e^2
-            if (mode == "global")
-                pmax = pMax[edge];
-            else if (mode == "local") {
-                indexx startingIndexCentralAuthority = numberOfRealPlayers*(numberOfEdges+1);
-                pmax = point[startingIndexCentralAuthority+edge]+ballSize;
-                pmax = min(pmax, pMax[edge]);
-            }
-            lipschitzConstant += numberOfRealPlayers*pmax*pmax;
-            // each player has the same capacity on an edge
-            double maxEdgeLoad = capacities[edge][0]; // l_e(x) <= capacity_edge
-            for (indexx p = 0; p < numberOfRealPlayers; p++) {
-                if (maxEdgeLoad != capacities[edge][p]) {
-                    throw logic_error("capacities are not the same for each player, "
-                        "lipschitz constant of central authority not computed properly");
-                }
-            }
-            // max(abs(u_e), abs(u_e-l_e^max(x)))^2
-            double maxTerm = max(abs(u[edge]), abs(u[edge] - maxEdgeLoad));
-            lipschitzConstant += maxTerm*maxTerm;
-        }
-    }
-    lipschitzConstant = sqrt(lipschitzConstant);
+    while (numerator / (1+lipschitzConstant) > ballSize);
 
     return lipschitzConstant;
 }
@@ -1122,6 +1134,28 @@ shared_ptr<NashEquilibriumProblem> createNEPImplementationGameInstance(
     shared_ptr<NashEquilibriumProblem> GNEP =
         make_shared<NashEquilibriumProblem>(bestResponseProblems);
 
+    // add fake constant term to each optimization problem so that all response values are nonnegative
+    vector<double> constantCoefficients;
+    // for 'real' players
+    for (indexx player = 0; player < numberOfPlayers; player++) {
+        double lowerBound = 0;
+        for (indexx edge = 0; edge < numberOfEdges; edge++) {
+            lowerBound -= U[player][edge]*capacities[edge][player];
+        }
+        // new lower bound is 1
+        constantCoefficients.push_back(-lowerBound+1);
+    }
+    // for the central authority
+    double lowerBound = 0;
+    for (indexx edge = 0; edge < numberOfEdges; edge++) {
+        double sumCapacities = 0;
+        for (indexx player = 0; player < numberOfPlayers; player++)
+            sumCapacities += U[player][edge];
+        lowerBound += (u[edge] - sumCapacities)*pMax[edge];
+    }
+    constantCoefficients.push_back(-lowerBound+1);
+    GNEP = addFakeConstantTerm(GNEP, constantCoefficients);
+
     return GNEP;
 }
 
@@ -1137,9 +1171,22 @@ shared_ptr<NashEquilibriumProblem> createMaxFlowMinLoadCostInstance(string const
     oldpMax, // useless here
     oldu] = parseImplementationGameGNEP(filename);
 
-    double flowObjectiveFactor = 100;
+    // replaces arcs with edges in network
+    for (indexx nnzIndex = 0; nnzIndex < 2*numberOfEdges; nnzIndex++) {
+        double value = network.getValue(nnzIndex);
+        indexx node = network.getRowIndex(nnzIndex);
+        indexx edge = network.getColIndex(nnzIndex);
+        network.addCoefficient(-value, node, edge+numberOfEdges);
+    }
+    numberOfEdges *= 2;
+    // capacities and loadCosts should also be extended
+    for (indexx edge = 0; edge < numberOfEdges/2; edge++) {
+        capacities.push_back(capacities[edge]);
+        loadCosts.push_back(loadCosts[edge]);
+    }
 
-    cout << "network:" << endl;
+    // to show network in a human-readable format:
+    cout << "network after arcs changed to edges:" << endl;
     for (indexx i = 0; i < network.size()/2; i++) {
         cout << "edge " << i << ": ";
         if (network.getValue(2*i) == 1)
@@ -1151,10 +1198,14 @@ shared_ptr<NashEquilibriumProblem> createMaxFlowMinLoadCostInstance(string const
     // using instance file of an implementation game,
     // but using U as loadCosts a_ie, i=player and e=edge
 
+    // number of variables: flow variables + constant objective term variable
+    // variables x_player,e representing flow for player on edge e
+    // variable removing the max cost from the objective so that the objective
+    // is nonpositive (constant objective term variable)
+    int numberOfVariablesOfPlayer = numberOfEdges+1;
     vector<int> numberOfVariablesPerPlayer = {};
     for (int player = 0; player < numberOfPlayers; player++) {
-        // variables x_player,e representing flow for player on edge e
-        numberOfVariablesPerPlayer.push_back(numberOfEdges);
+        numberOfVariablesPerPlayer.push_back(numberOfVariablesOfPlayer);
     }
 
     // initialize vector of optimizationProblem and other things
@@ -1166,24 +1217,27 @@ shared_ptr<NashEquilibriumProblem> createMaxFlowMinLoadCostInstance(string const
         vector<indexx> cIndices = {};
         indexx sourcePlayer = sourceSinks[player][0];
         indexx sinkPlayer = sourceSinks[player][1];
-        for (indexx nnzIndex = 0; nnzIndex < network.size(); nnzIndex++) {
-            // for each edge, check if one of its ends is the source
-            // checking only for row index because the format of network is
-            // (value:value, row:vertex, col:edge)
-            // thus the end points of an edge appear in two different triplets
-            if (sourcePlayer == network.getRowIndex(nnzIndex)) {
-                // if it is exiting the source, count -1
-                // (positive flow to the sink with minimization of the costs and thus negative flow counted in objective)
-                // if it is entering the source, count 1
-                // (negative flow to the sink with minimization of the costs and thus positive flow counted in objective)
-                if (network.getValue(nnzIndex) == 1)
-                    cValues.push_back(-1*flowObjectiveFactor);
-                if (network.getValue(nnzIndex) == -1)
-                    cValues.push_back(1*flowObjectiveFactor);
-                cIndices.push_back(numberOfEdges*player+network.getColIndex(nnzIndex));
-            }
+
+        // compute upper bound on costs (positive term of the costs)
+        double maxCostPlayer = 0;
+        for (indexx edge = 0; edge < numberOfEdges; edge++) {
+            double capacity = capacities[edge][player];
+            maxCostPlayer += loadCosts[edge][player]*capacity*capacity;
+            // check if capacity is the same for each player, else maxCostPlayer is computed wrongly
+            for (indexx p = 0; p < numberOfPlayers; p++)
+                if (capacity != capacities[edge][p])
+                    throw logic_error("capacity of an edge should be the same for each player "
+                                      "so that maxCostPlayer is properly computed");
         }
-        MySparseVector c = {cValues, cIndices};
+        cout << "upper bound of cost of "
+             << player << " is " << maxCostPlayer << endl;
+        if (maxCostPlayer != floor(maxCostPlayer))
+            throw logic_error("max cost of player should be an integer because intersection cuts need integer coefficients");
+        // index of this variable is the last of player
+        indexx indexConstantObjectiveTerm = numberOfVariablesOfPlayer*(player+1)-1;
+
+        // build c: empty because no gains
+        MySparseVector c = {{}, {}};
 
         // build Q: sum on all edges of cost of player,edge times square of load costs l_edge(x)
         // l_edge(x) = sum_player x_player,edge
@@ -1195,15 +1249,9 @@ shared_ptr<NashEquilibriumProblem> createMaxFlowMinLoadCostInstance(string const
             for (indexx p1 = 0; p1 < numberOfPlayers; p1++) {
                 for (indexx p2 = 0; p2 < numberOfPlayers; p2++) {
                     // cost_player,edge * x_p1,edge * x_p2,edge
-                    double value = max(loadCosts[edge][player],1.0);
-                    if (loadCosts[edge][player] < 1)
-                        cout << "warning: load costs set to 1 for loadCosts of player "
-                             << player << " and edge " << edge << endl;
-                    if (value < 1)
-                        throw logic_error("load costs need to be >= 1 so that all best-response values are nonnegative");
-                    QValues.push_back(value); // might be a coefficient too big to make an interesting game
-                    QRowIndices.push_back(numberOfEdges*p1+edge);
-                    QColIndices.push_back(numberOfEdges*p2+edge);
+                    QValues.push_back(loadCosts[edge][player]);
+                    QRowIndices.push_back(numberOfVariablesOfPlayer*p1+edge);
+                    QColIndices.push_back(numberOfVariablesOfPlayer*p2+edge);
                 }
             }
         }
@@ -1211,10 +1259,10 @@ shared_ptr<NashEquilibriumProblem> createMaxFlowMinLoadCostInstance(string const
 
         // build constraints
         vector<Constraint> constraints = {};
-        // positivity of flows
+        // nonnegativity of flows
         for (indexx edge = 0; edge < numberOfEdges; edge++) {
             // -x_i,e <= 0 (x_i,e >= 0)
-            constraints.push_back({{{-1},{numberOfEdges*player+edge}},
+            constraints.push_back({{{-1},{numberOfVariablesOfPlayer*player+edge}},
                                        {},
                                        0});
         }
@@ -1236,16 +1284,25 @@ shared_ptr<NashEquilibriumProblem> createMaxFlowMinLoadCostInstance(string const
             indexx node = network.getRowIndex(nnzNetwork);
             indexx edge = network.getColIndex(nnzNetwork);
             vectorValues[node].push_back(value);
-            vectorIndices[node].push_back(numberOfEdges*player+edge);
+            vectorIndices[node].push_back(numberOfVariablesOfPlayer*player+edge);
         }
         // generating constraints
         for (indexx node = 0; node < numberOfNodes; node++) {
             // flow polyhedron is the same for non-source/sink nodes
             // and constraints associated with source and sink are unnecessary
             if (node != sourcePlayer and node != sinkPlayer) {
+                if (!vectorValues[node].empty()) {
+                    MySparseVector sparseVector = {vectorValues[node],vectorIndices[node]};
+                    constraints.push_back({sparseVector,{},0});
+                    constraints.push_back({-sparseVector, {}, 0});
+                } else {
+                    cout << "node " << node << " has no edges" << endl;
+                }
+            }
+            else if (node == sourcePlayer) {
+                // positive flow for source (to get a nonpositive response value)
                 MySparseVector sparseVector = {vectorValues[node],vectorIndices[node]};
-                constraints.push_back({sparseVector,{},0});
-                constraints.push_back({-sparseVector, {}, 0});
+                constraints.push_back({-sparseVector, {}, -1});
             }
         }
 
@@ -1257,15 +1314,19 @@ shared_ptr<NashEquilibriumProblem> createMaxFlowMinLoadCostInstance(string const
             double b = capacities[edge][player];
             for (indexx p = 0; p < numberOfPlayers; p++) {
                 values.push_back(1);
-                indices.push_back(numberOfEdges*p+edge);
+                indices.push_back(numberOfVariablesOfPlayer*p+edge);
             }
             MySparseVector sparseVector = {values, indices};
             constraints.push_back({sparseVector,{},b});
         }
 
+        // fix value of y_i to max cost
+        constraints.push_back({{{1},{indexConstantObjectiveTerm}}, {}, maxCostPlayer});
+        constraints.push_back({{{-1},{indexConstantObjectiveTerm}}, {}, -maxCostPlayer});
+
         // build OptimizationProblem after integrality variable indices
         vector<indexx> integralityIndices = {};
-        for (indexx varIndex = numberOfEdges*player; varIndex < numberOfEdges*(player+1); varIndex++)
+        for (indexx varIndex = numberOfVariablesOfPlayer*player; varIndex < numberOfVariablesOfPlayer*(player+1)-1; varIndex++)
             integralityIndices.push_back(varIndex);
         bestResponseProblems.push_back(
             make_shared<OptimizationProblem>(numberOfVariablesPerPlayer[player],
@@ -1279,4 +1340,382 @@ shared_ptr<NashEquilibriumProblem> createMaxFlowMinLoadCostInstance(string const
     shared_ptr<NashEquilibriumProblem> GNEP = make_shared<NashEquilibriumProblem>(bestResponseProblems);
 
     return GNEP;
+}
+
+shared_ptr<NashEquilibriumProblem> createGNEPQuadraticKnapsackInstance(string const& filename) {
+    auto GNEP = createGNEPKnapsackInstance(filename, "fullInteger");
+    cout << filename << endl;
+
+    unsigned int seed = 1234;
+    // changing the seed with the numbers inside filename
+    int multiplier = 31;
+    for (char c : filename) {
+        seed += multiplier*c;
+        multiplier++;
+    }
+
+    // extend GNEP knapsack instance with a random definite positive term
+    for (indexx player = 0; player < GNEP->getNumberOfPlayer(); player++) {
+        int size = GNEP->getTotalNumberOfVariablesOfPlayers();
+        auto rangeLowerTriangularDiagonal = Bounds(1,3);
+        auto rangeLowerPart = Bounds(1,2);
+        // average proportion of values of the definite positive term that are nonzero
+        double sparsity = 0.1;
+        auto spd = symmetricPositiveDefiniteGeneration(
+            size,
+            rangeLowerTriangularDiagonal,
+            rangeLowerPart,
+            sparsity,
+            seed);
+        // change the seed for the other players to get other values
+        seed++;
+
+        // produce a MySparseMatrix from the vector<vector<double>>
+        vector<double> values;
+        vector<indexx> rowIndices;
+        vector<indexx> colIndices;
+        for (indexx i = 0; i < size; i++) {
+            for (indexx j = 0; j < size; j++) {
+                if (double val = spd[i][j]; val != 0) {
+                    values.push_back(val);
+                    rowIndices.push_back(i);
+                    colIndices.push_back(j);
+                }
+            }
+        }
+        auto C_player = MySparseMatrix(values, rowIndices, colIndices);
+        GNEP->getBestResponseProblems()[player]->setQ(C_player);
+    }
+
+    // change linear objective terms so that the objective function of any player is always nonpositive
+    // it is useful to apply the approx NE def (costs should be of the same sign all the time)
+    double maxSumRowLinearTerms = 0;
+    for (indexx player = 0; player < GNEP->getNumberOfPlayer(); player++) {
+        // compute maximum sum of coefs among all rows
+        double sumCoefs = 0;
+        indexx currentRow = -1;
+        auto Q = GNEP->getBestResponseProblems()[player]->getQ();
+        for (indexx cptIndex = 0; cptIndex < Q.size(); cptIndex++) {
+            double coef = Q.getValue(cptIndex);
+            indexx rowIndex = Q.getRowIndex(cptIndex);
+            if (currentRow != rowIndex) {
+                if (sumCoefs > maxSumRowLinearTerms)
+                    maxSumRowLinearTerms = sumCoefs;
+                currentRow = rowIndex;
+                sumCoefs = coef;
+            } else {
+                sumCoefs += coef;
+            }
+        }
+    }
+    cout << "max sum row linear terms: " << maxSumRowLinearTerms << endl;
+    for (indexx player = 0; player < GNEP->getNumberOfPlayer(); player++) {
+        auto oldC = GNEP->getBestResponseProblems()[player]->getC();
+        MySparseVector c;
+        for (indexx termIndex = 0; termIndex < oldC.size(); termIndex++) {
+            auto value = oldC.getValue(termIndex);
+            auto variableIndex = oldC.getIndex(termIndex);
+            c.addCoefficient(value-maxSumRowLinearTerms, variableIndex);
+        }
+        GNEP->getBestResponseProblems()[player]->setC(c);
+    }
+
+    return GNEP;
+}
+
+MySparseVector incrementIndices(MySparseVector const& v, indexx thresholdIndex) {
+    auto indices = v.getIndices();
+    for (int & indice : indices) {
+        if (indice >= thresholdIndex)
+            indice++;
+    }
+    return {v.getValues(), indices};
+}
+
+MySparseMatrix incrementIndices(MySparseMatrix const& m, indexx thresholdIndex) {
+    auto rowIndices = m.getRowIndices();
+    auto colIndices = m.getColIndices();
+    for (indexx i = 0; i < rowIndices.size(); i++) {
+        if (rowIndices[i] >= thresholdIndex)
+            rowIndices[i]++;
+        if (colIndices[i] >= thresholdIndex)
+            colIndices[i]++;
+    }
+    return {m.getValues(), rowIndices, colIndices};
+}
+
+shared_ptr<NashEquilibriumProblem> addFakeConstantTerm(
+        shared_ptr<NashEquilibriumProblem> GNEP,
+        vector<double> const& values) {
+    cout << "adding fake constant terms to have response values of the same sign"
+    " and thus same inequality to check for the approximate-NE definition" << endl;
+    cout << "constant values: " << values << endl;
+    if (values.size() != GNEP->getNumberOfPlayer())
+        throw logic_error("there is not the right number of constant term. It should be the number of players");
+
+    // hypothesis: variables of player i have higher indices
+    // than player i-1 and lower than i+1
+
+    // throughout the for loop, lastIndexCurrentPlayer is the index of the fake variable for each player
+    indexx lastIndexCurrentPlayer = -1;
+    for (indexx player = 0; player < GNEP->getNumberOfPlayer(); player++) {
+        // update lastIndexCurrentPlayer for the next player
+        lastIndexCurrentPlayer += GNEP->getNumberOfVariablesOfPlayer(player)+1;
+        // cout << "last index of player " << player << " should be " << lastIndexCurrentPlayer << endl;
+
+        // increase indices of variables with greater indices by 1
+        for (indexx p = 0; p < GNEP->getNumberOfPlayer(); p++) {
+            // c, Q, each constraint
+            auto c = incrementIndices(GNEP->getBestResponseProblems()[p]->getC(), lastIndexCurrentPlayer);
+            GNEP->getBestResponseProblems()[p]->setC(c);
+            auto Q = incrementIndices(GNEP->getBestResponseProblems()[p]->getQ(), lastIndexCurrentPlayer);
+            GNEP->getBestResponseProblems()[p]->setQ(Q);
+            auto constraints = GNEP->getBestResponseProblems()[p]->getConstraints();
+            for (indexx constraintIndex = 0; constraintIndex < constraints.size(); constraintIndex++) {
+                auto constraintVector = incrementIndices(constraints[constraintIndex].getAx(), lastIndexCurrentPlayer);
+                auto constraintMatrix = incrementIndices(constraints[constraintIndex].getXQx(), lastIndexCurrentPlayer);
+                constraints[constraintIndex] = Constraint(constraintVector, constraintMatrix, constraints[constraintIndex].getB());
+            }
+            GNEP->getBestResponseProblems()[p]->setConstraints(constraints);
+        }
+        // update number of variables of the problem
+        GNEP->getBestResponseProblems()[player]->incrementNumberOfVariables();
+        // add linear term with fake integer variable with bounds [1,1]
+        // cout << "check new term in linear costs, the number of terms should increase by 1:" << endl;
+        // cout << GNEP->getBestResponseProblems()[player]->getC().size() << endl;
+        int oldVarNumber = GNEP->getBestResponseProblems()[player]->getC().size();
+        auto newC = GNEP->getBestResponseProblems()[player]->getC();
+        newC.addCoefficient(values[player], lastIndexCurrentPlayer);
+        GNEP->getBestResponseProblems()[player]->setC(newC);
+        // cout << GNEP->getBestResponseProblems()[player]->getC().size() << endl;
+        int newVarNumber = GNEP->getBestResponseProblems()[player]->getC().size();
+        if (newVarNumber - oldVarNumber != 1)
+            throw logic_error("the number of linear terms should increase by 1 but does not");
+        GNEP->getBestResponseProblems()[player]->addConstraint(
+            {{{1},{lastIndexCurrentPlayer}},{},1});
+        GNEP->getBestResponseProblems()[player]->addConstraint(
+            {{{-1},{lastIndexCurrentPlayer}},{},-1});
+    }
+    return GNEP;
+}
+
+randomGNEP parseRandomGNEPInstance(string const& filename) {
+    // parser for instance file built from the method randomGNEPInstance
+
+    // it has only linear terms.
+    // objective function only has negative coefs (because it comes from a max problem)
+    // there is the same number of variables and constraints for each player
+    // each rhs is positive, and each lhs coefficient is positive so that
+    // the null strategy profile is feasible
+
+    ifstream file(filename);
+    if (file.fail())
+        throw runtime_error("this file could not be opened: " + filename);
+    string line;
+    string temp;
+
+    // parse first line to get number of players, constraints and variables
+    getline(file, line);
+    istringstream iss(line);
+    getline(iss,temp,' ');
+    int numberOfPlayers = stoi(temp);
+    getline(iss,temp,' ');
+    int numberOfVariables = stoi(temp);
+    getline(iss,temp,' ');
+    int numberOfConstraints = stoi(temp);
+
+    int totalNumberOfVariables = numberOfPlayers*numberOfVariables;
+
+    // declaration of containers
+    vector<randomPlayerProblem> problems;
+
+    // first initialize each value with 0
+    for (int player = 0; player < numberOfPlayers; player++) {
+        // next line for objective coefficients
+        getline(file, line);
+        istringstream issobj(line);
+        vector<double> objectiveValues;
+        vector<int> variableIndices;
+        for (indexx indexVariable = 0; indexVariable < totalNumberOfVariables; indexVariable++) {
+            getline(issobj, temp, ' ');
+            objectiveValues.push_back(static_cast<double>(stoi(temp)));
+            variableIndices.push_back(indexVariable);
+        }
+        MySparseVector objective = {objectiveValues, variableIndices};
+        vector<Constraint> constraints;
+        for (indexx indexConstraint = 0; indexConstraint < numberOfConstraints; indexConstraint++) {
+            getline(file, line);
+            istringstream isscons(line);
+            vector<double> constraintValues;
+            for (indexx indexVariable = 0; indexVariable < totalNumberOfVariables; indexVariable++) {
+                getline(isscons, temp, ' ');
+                constraintValues.push_back(static_cast<double>(stoi(temp)));
+            }
+            getline(isscons, temp, ' ');
+            MySparseVector lhs = {constraintValues, variableIndices};
+            Constraint constraint = {lhs, {}, static_cast<double>(stoi(temp))};
+            constraints.push_back(constraint);
+        }
+
+        // form randomPlayerProblem
+        randomPlayerProblem problem = {
+            player,
+            numberOfVariables*player,
+            numberOfVariables,
+            numberOfConstraints,
+            objective,
+            constraints};
+        problems.push_back(problem);
+    }
+    randomGNEP randomGame = {numberOfPlayers, numberOfConstraints, numberOfVariables, problems};
+    return randomGame;
+}
+
+shared_ptr<NashEquilibriumProblem> createGNEPRandomInstance(
+        string const& filename) {
+    cout << "building model of GNEP random game" << endl;
+
+    // parse filename
+    randomGNEP instance = parseRandomGNEPInstance(filename);
+
+    int numberOfPlayers = instance.numberOfPlayers;
+    int numberOfVariables = instance.numberOfVariables;
+
+    vector<int> numberOfVariablesPerPlayer = {};
+    for (int player = 0; player < numberOfPlayers; player++)
+        numberOfVariablesPerPlayer.push_back(numberOfVariables);
+
+    // initialize vector of optimizationProblem and other things
+    vector<shared_ptr<OptimizationProblem>> bestResponseProblems = {};
+    int countNumberOfVariables = 0;
+
+    // for each player, build OptimizationProblem
+    for (int player = 0; player < numberOfPlayers; player++) {
+        randomPlayerProblem problem = instance.problems[player];
+        // build c
+        MySparseVector c = problem.objective;
+
+        // build Q
+        MySparseMatrix Q = {};
+
+        // build constraints
+        vector<Constraint> constraints = problem.constraints;
+        // constraints for bounds of binary vectors
+        for (indexx variableIndex = problem.firstVariable;
+            variableIndex < problem.firstVariable+problem.numberOfVariables;
+            variableIndex++) {
+            // 0 <= variable <= 10
+            constraints.push_back({{{1.0},
+                                            {variableIndex}},
+                                            {},
+                                            10});
+            constraints.push_back({{{-1.0},
+                                            {variableIndex}},
+                                            {},
+                                            0.0});
+        }
+
+        // build OptimizationProblem, reuse capacityIndices as integrality variable indices
+        vector<indexx> integralityIndices = {};
+        for (indexx variableIndex = problem.firstVariable;
+            variableIndex < problem.firstVariable+problem.numberOfVariables;
+            variableIndex++) {
+            integralityIndices.push_back(variableIndex);
+        }
+
+        bestResponseProblems.push_back(make_shared<OptimizationProblem>(
+            numberOfVariablesPerPlayer[player],
+            c,
+            Q,
+            constraints,
+            integralityIndices));
+    }
+
+    // instantiate NEP
+    shared_ptr<NashEquilibriumProblem> NEP =
+        make_shared<NashEquilibriumProblem>(bestResponseProblems);
+
+    return NEP;
+}
+
+shared_ptr<NashEquilibriumProblem> createGNEPRandomQuadraticInstance(
+        string const& filename) {
+    // same as createGNEPRandomInstance except for the objective of each players' problem:
+    // the terms depending on other players' variables are removed, and
+    // the remaining term c_i x_i is changed to c_i x_i^2 -> concave quadratic because c_i < 0
+    cout << "building model of GNEP random quadratic (concave) game" << endl;
+
+    // parse filename
+    randomGNEP instance = parseRandomGNEPInstance(filename);
+
+    int numberOfPlayers = instance.numberOfPlayers;
+    int numberOfVariables = instance.numberOfVariables;
+
+    vector<int> numberOfVariablesPerPlayer = {};
+    for (int player = 0; player < numberOfPlayers; player++)
+        numberOfVariablesPerPlayer.push_back(numberOfVariables);
+
+    // initialize vector of optimizationProblem and other things
+    vector<shared_ptr<OptimizationProblem>> bestResponseProblems = {};
+    int countNumberOfVariables = 0;
+
+    // for each player, build OptimizationProblem
+    for (int player = 0; player < numberOfPlayers; player++) {
+        randomPlayerProblem problem = instance.problems[player];
+        // build c
+        MySparseVector c = {};
+
+        // build Q
+        vector<double> values = {};
+        vector<indexx> variableIndices = {};
+        // remove other players' terms from values
+        for (indexx ind = 0; ind < problem.objective.size(); ind++) {
+            auto indexVariable = problem.objective.getIndex(ind);
+            auto value = problem.objective.getValue(ind);
+            if (indexVariable >= problem.firstVariable
+                and indexVariable < problem.firstVariable+problem.numberOfVariables) {
+                values.push_back(value);
+                variableIndices.push_back(ind);
+            }
+        }
+        MySparseMatrix Q = {values, variableIndices, variableIndices};
+
+        // build constraints
+        vector<Constraint> constraints = problem.constraints;
+        // constraints for bounds of binary vectors
+        for (indexx variableIndex = problem.firstVariable;
+            variableIndex < problem.firstVariable+problem.numberOfVariables;
+            variableIndex++) {
+            // 0 <= variable <= 10
+            constraints.push_back({{{1.0},
+                                            {variableIndex}},
+                                            {},
+                                            10});
+            constraints.push_back({{{-1.0},
+                                            {variableIndex}},
+                                            {},
+                                            0.0});
+        }
+
+        // build OptimizationProblem, reuse capacityIndices as integrality variable indices
+        vector<indexx> integralityIndices = {};
+        for (indexx variableIndex = problem.firstVariable;
+            variableIndex < problem.firstVariable+problem.numberOfVariables;
+            variableIndex++) {
+            integralityIndices.push_back(variableIndex);
+        }
+
+        bestResponseProblems.push_back(make_shared<OptimizationProblem>(
+            numberOfVariablesPerPlayer[player],
+            c,
+            Q,
+            constraints,
+            integralityIndices));
+    }
+
+    // instantiate NEP
+    shared_ptr<NashEquilibriumProblem> NEP =
+        make_shared<NashEquilibriumProblem>(bestResponseProblems);
+
+    return NEP;
 }

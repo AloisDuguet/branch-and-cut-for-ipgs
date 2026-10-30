@@ -8,6 +8,7 @@
 
 #include "BranchAndCutTools.h"
 #include "BranchAndCutForGNEP.h"
+#include "MibSForGNEP.h"
 #include "BuildGameFromInstance.h"
 #include "TestInstances.h"
 
@@ -18,13 +19,17 @@ int main(int argc, char *argv[]) {
     string filename;
     // string gameTypeString = "NEP-fullInteger";
     // gameTypeString in NEP-fullInteger NEP-mixedInteger GNEP-fullInteger
-    // implementationGame NEPdiscrete-Schwarze23
-    string gameTypeString = "NEPdiscrete-Schwarze23";
+    // implementationGame NEPdiscrete-Schwarze23 NEP-fullInteger-linearized-in-GNEP
+    string gameTypeString = "NEP-fullInteger";
     string algorithmVariant = "basicAlgorithm";
 
     // decide the cut used with respect to the game type
     string whichCutString = "eqCuts"; // for NEP
-    if (gameTypeString == "GNEP-fullInteger" or gameTypeString == "implementationGame")
+    if (gameTypeString == "GNEP-fullInteger"
+        or gameTypeString == "implementationGame"
+        or gameTypeString == "NEP-fullInteger-linearized-in-GNEP"
+        or gameTypeString == "randomGNEP"
+        or gameTypeString == "randomGNEPQuadratic")
         whichCutString = "intersectionCuts"; // for GNEP
 
     // decide if the cut is local or global with the type of cut used
@@ -40,6 +45,8 @@ int main(int argc, char *argv[]) {
     string branchingRuleString = "mostFractional";
     double timeLimit = 3600;
     int verbosity = 3;
+    // Branch-and-Cut or MibS
+    string methodName = "Branch-and-Cut";
     string resultFilename = "noWriteResult";
 
     // specific setting given by argc and argv
@@ -69,7 +76,8 @@ int main(int argc, char *argv[]) {
     if (argc >= 9) branchingRuleString = argv[8];
     if (argc >= 10) timeLimit = stod(argv[9]);
     if (argc >= 11) verbosity = stoi(argv[10]);
-    if (argc >= 12) resultFilename = argv[11];
+    if (argc >= 12) methodName = argv[11];
+    if (argc >= 13) resultFilename = argv[12];
 
     // write arguments
     if (verbosity >= 1) {
@@ -80,7 +88,8 @@ int main(int argc, char *argv[]) {
     }
 
     try {
-        auto branchingAlgorithm = BranchAndCutForGNEP(
+        if (methodName == "Branch-and-Cut") {
+            auto branchingAlgorithm = BranchAndCutForGNEP(
                                      NEP,
                                      gameTypeString,
                                      globalCutSwitch,
@@ -93,16 +102,31 @@ int main(int argc, char *argv[]) {
                                      timeLimit,
                                      verbosity,
                                      resultFilename);
-        auto NEPOutput = branchingAlgorithm.solve();
+            auto NEPOutput = branchingAlgorithm.solve();
+        } else if (methodName == "MibS") {
+            auto mibsCall = MibSForGNEP(
+                                     NEP,
+                                     gameTypeString,
+                                     globalCutSwitch,
+                                     modelTypeString,
+                                     whichCutString,
+                                     branchingRuleString,
+                                     algorithmVariant,
+                                     filename,
+                                     enumerateNE,
+                                     timeLimit,
+                                     verbosity,
+                                     resultFilename);
+            auto NEPOutput = mibsCall.solve();
+        } else
+            throw logic_error("methodName " + methodName + " not recognised");
+
     }
     catch (std::logic_error const&  e) {
         cerr << "logic_error: " << e.what() << endl;
     }
     catch (std::runtime_error const& e) {
         cerr << "runtime_error: " << e.what() << endl;
-    }
-    catch (GRBException const& e) {
-        cerr << "GRBException: " << e.getMessage() << endl;
     }
 
     return 0;

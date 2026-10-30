@@ -8,7 +8,7 @@
 #include "BCMultiplicativeAdditiveApproxGNEP.h"
 #include "BestMultiplicativeApproxGNEP.h"
 
-#include "BestMultiplicativeAdditiveBranchOutput.h"
+#include "BestAdditiveMultiplicativeBranchOutput.h"
 
 class BestMultiplicativeAdditiveApproxGNEP :
                                         public BCMultiplicativeAdditiveApproxGNEP,
@@ -29,6 +29,14 @@ public:
         double timeLimit = 3600,
         int verbosity = 0,
         std::string const& resultFilename = "results.txt");
+
+    // initialize some attributes that are not initialized in
+    // the same way depending on the real algorithm class
+    void initialize() override;
+
+    // checkValidArguments: interdict intersection cuts
+    // as long as the NE-free set is not recomputed
+    void checkValidArguments() const override;
 
     // print basic information on instance
     void printParameters(std::ostream& os) const override;

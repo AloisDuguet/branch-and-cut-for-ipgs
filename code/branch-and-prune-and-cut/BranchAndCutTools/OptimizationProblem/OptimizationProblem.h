@@ -27,6 +27,7 @@ public:
         std::vector<indexx> const& integralityConstraints);
 
     [[nodiscard]] int getNumberOfVariables() const;
+    void incrementNumberOfVariables();
 
     void print(std::ostream& os = std::cout) const;
 
@@ -46,10 +47,11 @@ public:
 
     void setIntegralityConstraints(std::vector<indexx> const& integralityConstraints);
 
-    void AddConstraint(Constraint const &constraint);
+    void addConstraint(Constraint const &constraint);
 
     // return bool with feasibility of point
-    [[nodiscard]] bool checkPointFeasibility(std::vector<double> const& point) const;
+    [[nodiscard]] bool checkPointFeasibility(
+        std::vector<double> const& point) const;
 
     // return objective value of point
     [[nodiscard]] double evalObjective(std::vector<double> const& point) const;

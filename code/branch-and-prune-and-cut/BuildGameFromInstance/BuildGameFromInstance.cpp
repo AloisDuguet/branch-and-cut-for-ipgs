@@ -2,8 +2,9 @@
 // Created by Aloïs Duguet on 7/8/25.
 //
 
-#include "GameParserAndBuilder.h"
 #include "BuildGameFromInstance.h"
+
+#include "GameParserAndBuilder.h"
 
 using namespace std;
 
@@ -12,10 +13,14 @@ shared_ptr<NashEquilibriumProblem> buildGameFromInstance(string const& gameTypeS
     if (filename.find(".txt") != string::npos) {
         if (gameTypeString == "NEP-fullInteger")
             NEP = createNEPKnapsackInstance(filename, "fullInteger");
+        else if (gameTypeString == "NEP-fullInteger-linearized-in-GNEP")
+            NEP = createNEPKnapsackInstanceWithQuadraticTermsReformulated(filename);
         else if (gameTypeString == "NEP-mixedInteger")
             NEP = createNEPKnapsackInstance(filename, "halfInteger");
         else if (gameTypeString == "GNEP-fullInteger")
             NEP = createGNEPKnapsackInstance(filename, "fullInteger");
+        else if (gameTypeString == "GNEPQuadraticKnapsack")
+            NEP = createGNEPQuadraticKnapsackInstance(filename);
         else if (gameTypeString == "implementationGame")
             NEP = createGNEPImplementationGameInstance(filename);
         else if (gameTypeString == "NEPImplementationGame")
@@ -24,6 +29,10 @@ shared_ptr<NashEquilibriumProblem> buildGameFromInstance(string const& gameTypeS
             NEP = createMaxFlowMinLoadCostInstance(filename);
         else if (gameTypeString == "NEPdiscrete-Schwarze23")
             NEP = createSchwarze23DiscreteNEPInstance(filename);
+        else if (gameTypeString == "randomGNEP")
+            NEP = createGNEPRandomInstance(filename);
+        else if (gameTypeString == "randomGNEPQuadratic")
+            NEP = createGNEPRandomQuadraticInstance(filename);
         else {
             throw runtime_error("Input error: unknown modelType '" + gameTypeString + "'");
         }
@@ -62,16 +71,17 @@ string getFilenameInstance(string const& gameTypeString) {
     string folder_GNEP_knapsack = "../../../instances/GNEP_knapsack_instances/";
     string folder_NEP_knapsack = "../../../instances/NEP_knapsack_instances/";
     string folder_Schwarze23 = "../../../instances/Schwarze23DiscreteNEP/";
-    if (gameTypeString == "NEP-fullInteger") {
+    string folder_randomGNEP = "../../../instances/GNEPRandomInstances/";
+    if (gameTypeString == "NEP-fullInteger" or gameTypeString == "NEP-fullInteger-linearized-in-GNEP") {
         filename = folder_NEP_knapsack+"2-5-5-uncorr-1.txt";
         filename = folder_NEP_knapsack+"2-5-5-weakcorr-0.txt";
         // filename = folder_NEP_knapsack+"2-10-5-uncorr-0.txt";
         // filename = folder_NEP_knapsack+"4-20-2-uncorr-4.txt";
         filename = folder_NEP_knapsack+"2-15-5-uncorr-1.txt";
         // filename = folder_NEP_knapsack+"2-40-5-weakcorr-2.txt";
-        filename = folder_Dragotto+"3-25-8-pot.txt";
+        // filename = folder_Dragotto+"3-25-8-pot.txt";
         // filename = folder_NEP_knapsack+"2-50-2-weakcorr-0.txt";
-        // filename = folder_NEP_knapsack+"2-30-5-uncorr-0.txt";
+        filename = folder_NEP_knapsack+"3-5-5-uncorr-0.txt";
         // filename = folder_Dragotto+"2-25-5-cij-n.txt";
         // filename = folder_NEP_knapsack+"2-10-5-uncorr-0.txt";
         // filename = folder_NEP_knapsack+"4-50-5-uncorr-0.txt";
@@ -84,13 +94,14 @@ string getFilenameInstance(string const& gameTypeString) {
         // filename = folder_NEP_knapsack+"3-10-8-weakcorr-3.txt";
         // filename = folder_NEP_knapsack+"2-20-5-weakcorr-0.txt";
         // filename = folder_NEP_knapsack+"2-20-5-strongcorr-2.txt";
-        filename = folder_NEP_knapsack+"4-5-2-weakcorr-1.txt";
+        filename = folder_NEP_knapsack+"4-10-5-uncorr-1.txt";
         // filename = folder_NEP_knapsack+"4-20-2-uncorr-2.txt";
+        filename = folder_Dragotto+"2-25-5-cij-n.txt";
     }
-    else if (gameTypeString == "GNEP-fullInteger") {
+    else if (gameTypeString == "GNEP-fullInteger" or gameTypeString == "GNEPQuadraticKnapsack") {
         filename = folder_GNEP_knapsack+"2-5-5-uncorr-0.txt";
-        filename = folder_GNEP_knapsack+"4-50-2-strongcorr-8.txt";
-        // filename = folder_GNEP_knapsack+"2-20-2-uncorr-1.txt";
+        // filename = folder_GNEP_knapsack+"4-50-2-strongcorr-8.txt";
+        filename = folder_GNEP_knapsack+"2-10-2-uncorr-1.txt";
         // filename = folder_GNEP_knapsack+"2-20-2-uncorr-2.txt";
         // filename = folder_GNEP_knapsack+"4-30-5-weakcorr-4.txt";
         // filename = folder_GNEP_knapsack+"4-15-5-weakcorr-7.txt";
@@ -98,39 +109,42 @@ string getFilenameInstance(string const& gameTypeString) {
     }
     else if (gameTypeString == "implementationGame") {
         filename = folder_implementation_game+"I_2_10_mm_10_1.txt";
-        // filename = folder_implementation_game+"I_2_15_mm_1_6.txt";
+        filename = folder_implementation_game+"I_10_15_ss_10_6.txt";
         // filename = folder_implementation_game+"I_2_10_mm_10_10.txt"; // no NE exists
         // filename = folder_implementation_game+"I_2_10_ss_10_7.txt"; // no NE exists
         // filename = folder_implementation_game+"I_2_15_ss_10_2.txt"; // no NE exists
-        filename = folder_implementation_game+"I_2_20_mm_10_62.txt"; // no NE exists
+        // filename = folder_implementation_game+"I_2_20_mm_10_62.txt"; // no NE exists
         // filename = folder_implementation_game+"I_2_20_mm_10_74.txt"; // no NE exists
         // filename = folder_implementation_game+"I_10_20_ss_10_5.txt";
-        filename = folder_implementation_game+"I_2_15_ss_1_3.txt";
+        // filename = folder_implementation_game+"I_2_15_ss_1_3.txt";
     } else if (gameTypeString == "NEPImplementationGame") {
         filename = folder_implementation_game+"I_2_10_mm_10_10.txt";
         // filename = folder_implementation_game+"I_2_10_mm_10_1.txt";
-        filename = folder_implementation_game+"I_2_10_mm_10_10.txt";
-        // filename = folder_implementation_game+"I_2_20_mm_10_62.txt";
+        // filename = folder_implementation_game+"I_2_10_mm_10_10.txt";
+        filename = folder_implementation_game+"I_2_20_mm_10_62.txt";
         // filename = folder_implementation_game+"I_2_20_mm_10_26.txt";
         // filename = folder_implementation_game+"I_2_10_ss_10_7.txt";
 
-        // filename = folder_implementation_game+"I_10_10_mm_10_10.txt";
+        filename = folder_implementation_game+"I_10_10_mm_10_10.txt";
         // filename = folder_implementation_game+"I_2_20_mm_10_1.txt";
 
-        // filename = folder_implementation_game+"I_2_20_mm_10_34.txt";
+        // filename = folder_implementation_game+"I_4_10_ss_10_3.txt";
         // filename = folder_implementation_game+"I_2_20_mm_10_11.txt";
-        // filename = folder_implementation_game+"I_4_10_mm_10_1.txt";
+        filename = folder_implementation_game+"I_2_10_ss_1_6.txt";
     } else if (gameTypeString == "GNEP-maxFlowGame") {
-        filename = folder_implementation_game+"I_2_10_mm_10_1.txt";
+        filename = folder_implementation_game+"I_2_10_mm_10_9.txt";
         // filename = folder_implementation_game+"I_2_15_mm_1_6.txt";
-        filename = folder_implementation_game+"I_2_10_ss_10_7.txt";
-        filename = folder_implementation_game+"I_2_20_mm_10_62.txt";
-        filename = folder_implementation_game+"I_10_10_mm_10_4.txt";
-        // filename = folder_implementation_game+"I_10_20_ss_10_5.txt";
-        filename = folder_implementation_game+"I_4_15_mm_1_10.txt";
+        // filename = folder_implementation_game+"I_10_10_mm_1_3.txt";
+        // filename = folder_implementation_game+"I_2_20_mm_10_61.txt";
+        // filename = folder_implementation_game+"I_2_10_mm_10_2.txt";
+        // filename = folder_implementation_game+"I_10_20_mm_10_4.txt";
+        // filename = folder_implementation_game+"I_10_20_mm_1_8.txt";
     } else if (gameTypeString == "NEPdiscrete-Schwarze23") {
-        filename = folder_Schwarze23+"rg22_1.txt";
-        filename = folder_Schwarze23+"RNC33_1.txt";
+        filename = folder_Schwarze23+"rg23_4.txt";
+        // filename = folder_Schwarze23+"RNC33_1.txt";
+    } else if (gameTypeString == "randomGNEP" or gameTypeString == "randomGNEPQuadratic") {
+        filename = folder_randomGNEP+"randomGNEP2-3-5-25-2.txt";
+        // filename = folder_randomGNEP+"randomGNEP2-10-5-50-2.txt";
     }
     else {
         throw runtime_error("Input error: unknown modelType '" + gameTypeString + "'");

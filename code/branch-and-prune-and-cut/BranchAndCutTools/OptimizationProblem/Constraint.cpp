@@ -7,6 +7,7 @@
 #include <iostream>
 #include <cmath>
 #include <format>
+#include <algorithm>
 
 using namespace std;
 
@@ -48,7 +49,6 @@ void Constraint::increaseB(double value) {
     m_b += value;
 }
 
-
 double Cut::distanceMeasure(Cut const& cut) const {
     double sumOfSquare = pow(m_b-cut.m_b, 2);
     sumOfSquare += pow(m_ax.distanceMeasure(cut.m_ax), 2);
@@ -67,19 +67,11 @@ bool Cut::areCutsEqual(Cut const& cut) const {
     return true;
 }
 
-bool Constraint::checkConstraintWithPoint(std::vector<double> const& point,
+bool Constraint::checkConstraintWithPoint(vector<double> const& point,
                                           int verbosity,
                                           double const& tolerance) const {
-    double lhsEval = 0;
-    for (indexx i = 0; i < m_ax.size(); i++) {
-        if (point.size() < m_ax.getIndex(i))
-            throw logic_error("in checkConstraintWithPoint, "
-                              "a point of wrong size has been given");
-        lhsEval += m_ax.getValue(i)*point[m_ax.getIndex(i)];
-    }
-    for (indexx i = 0; i < m_xQx.size(); i++)
-        lhsEval +=
-            m_xQx.getValue(i)*point[m_xQx.getRowIndex(i)]*point[m_xQx.getColIndex(i)];
+    double lhsEval = evalLhs(point);
+
     // useful print
     // tolerance should be set in accordance with solver tolerance
     // BUT it does not exactly work by setting the same value
@@ -118,9 +110,37 @@ bool Constraint::checkConstraintWithPoint(std::vector<double> const& point,
     }
 }
 
+bool Constraint::checkPointFeasibility(vector<double> const &point,
+                                       vector<Constraint> const &constraints,
+                                       bool verboseIfFeasible) const {
+    bool feasible = true;
+    indexx i = 0;
+    for (auto const& constraint : constraints) {
+        // cout << constraint << endl;
+        // cout << "constraint " << i << ": ";
+        if (constraint.checkConstraintWithPoint(point,1)) {
+            cout << "point does not satisfy constraint " << constraint << endl
+                 << " by margin " << constraint.getB() - constraint.evalLhs(point)
+                 << endl;
+            feasible = false;
+        } else {
+            if (verboseIfFeasible) {
+                // point is feasible; print something only if margin == 0
+                if (constraint.evalLhs(point) == constraint.getB())
+                cout << "constraint active under point " << constraint << endl;
+            }
+        }
+        i++;
+    }
+    return feasible;
+}
+
 double Constraint::evalLhs(vector<double> const &point) const {
     double res = 0;
     for (indexx i = 0; i < m_ax.size(); i++) {
+        if (point.size() < m_ax.getIndex(i))
+            throw logic_error("in Constraint::evalLhs, "
+                              "a point of wrong size has been given");
         res += m_ax.getValue(i)*point[m_ax.getIndex(i)];
     }
     for (indexx i = 0; i < m_xQx.size(); i++) {
@@ -142,4 +162,47 @@ bool operator==(Constraint const& c1, Constraint const& c2) {
     if (c1.getXQx() != c2.getXQx())
         return false;
     return true;
+}
+
+bool Constraint::isIntegerBranchingConstraint() const {
+    if (m_ax.size() != 1)
+        return false;
+    if (m_xQx.size() != 0)
+        return false;
+    if (floor(m_b) != m_b)
+        return false;
+    double coef = m_ax.getValue(0);
+    if (coef != 1 and coef != -1)
+        return false;
+    return true;
+}
+
+bool Constraint::isUpperBoundProof(
+        vector<bool> const& areVariablesNonnegativ) const {
+    // it handles only a simple case: linear constraint with only positive linear terms and nonnegative variables
+    if (m_xQx.size() != 0) {
+        // not implemented for now
+        return false;
+    }
+    // looking for negative coefs
+    for (auto coef : m_ax.getValues()) {
+        if (coef < 0)
+            return false;
+    }
+    // looking for variables with negative values authorized
+    for (auto ind : m_ax.getIndices()) {
+        if (!areVariablesNonnegativ[ind])
+            return false;
+    }
+    return true;
+}
+
+vector<Constraint> Constraint::extractUpperBoundConstraints() const {
+    vector<Constraint> constraints;
+    for (indexx i = 0; i < m_ax.size(); i++) {
+        indexx variableIndex = m_ax.getIndex(i);
+        double bound = ceil(m_b / m_ax.getValue(i));
+        constraints.push_back(Constraint({{1}, {variableIndex}}, {}, bound));
+    }
+    return constraints;
 }

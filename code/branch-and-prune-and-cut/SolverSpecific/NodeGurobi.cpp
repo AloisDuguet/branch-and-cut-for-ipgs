@@ -8,6 +8,7 @@
 #include <chrono>
 #include "gurobi_c++.h"
 #include <cmath>
+#include <algorithm>
 
 #include "BranchAndCutTools.h"
 
@@ -17,6 +18,7 @@ NodeGurobi::NodeGurobi() {
 }
 
 NodeGurobi::NodeGurobi(shared_ptr<NodeGurobi> ptrnode, Constraint *constraint) {
+    // TODO: call NodeGurobi(shared_ptr<NodeGurobi) to avoid duplicate
     m_nodeNumber = -1;
     m_fatherNode = ptrnode;
     m_branch = *constraint;
@@ -24,6 +26,7 @@ NodeGurobi::NodeGurobi(shared_ptr<NodeGurobi> ptrnode, Constraint *constraint) {
     m_subproblem = make_shared<OptimizationProblem>(ptrnode->m_subproblem->getNumberOfVariables());
     m_isSolved = false;
     m_solution = {};
+    m_variableBounds = {};
 }
 
 NodeGurobi::NodeGurobi(shared_ptr<NodeGurobi> ptrnode) {
@@ -34,6 +37,7 @@ NodeGurobi::NodeGurobi(shared_ptr<NodeGurobi> ptrnode) {
     m_subproblem = make_shared<OptimizationProblem>(ptrnode->m_subproblem->getNumberOfVariables());
     m_isSolved = false;
     m_solution = {};
+    m_variableBounds = {};
 }
 
 NodeGurobi* NodeGurobi::buildChildOfRootNode() {
@@ -43,6 +47,7 @@ NodeGurobi* NodeGurobi::buildChildOfRootNode() {
     return new NodeGurobi();
 }
 
+// TODO: return a shared_ptr<Node> to avoid the new
 NodeGurobi* NodeGurobi::buildChildWithBranch(Constraint *constraint) {
     // return type is not shared_ptr<NodeGurobi> because it is not related to shared_ptr<Node>
     // whereas we want to use the property that a NodeGurobi* can be cast as a Node*
@@ -120,9 +125,89 @@ void NodeGurobi::printIIS(std::shared_ptr<GRBModel> const& model, vector<double>
     delete[] constrs;
 }
 
+std::shared_ptr<GRBModel> NodeGurobi::buildGurobiModel(
+    shared_ptr<GRBEnv> const& globalEnv,
+    double solverTimeLimit,
+    int verbosity,
+    int const thresholdLogging,
+    bool activateNumericFocus,
+    vector<GRBVar>& variables,
+    bool relaxIntegrality) {
+    if (verbosity >= thresholdLogging) {
+        globalEnv->set(GRB_IntParam_LogToConsole, 1);
+        globalEnv->set(GRB_IntParam_OutputFlag, 1);
+    }
+    shared_ptr<GRBModel> model = make_shared<GRBModel>(*globalEnv);
+    model->set(GRB_DoubleParam_TimeLimit, solverTimeLimit);
+
+    // in case of numerical issues, the following options could help:
+    if (activateNumericFocus)
+        model->set(GRB_IntParam_NumericFocus, 3);
+
+    int numberOfVariables = m_subproblem->getNumberOfVariables();
+
+    // create variables
+    MySparseVector c = m_subproblem->getC();
+    MySparseMatrix Q = m_subproblem->getQ();
+    vector<Constraint> constraints = m_subproblem->getConstraints();
+    auto integralityConstraints = m_subproblem->getIntegralityConstraints();
+    for (indexx i = 0; i < numberOfVariables; i++) { // variables called "x" + to_string(i)
+        auto variableType = GRB_CONTINUOUS;
+        if (!relaxIntegrality and find(integralityConstraints.begin(),
+                                      integralityConstraints.end(),
+                                      i) != integralityConstraints.end())
+            variableType = GRB_INTEGER;
+        variables[i] = model->addVar(-GRB_INFINITY, GRB_INFINITY, 0, variableType, "x" + to_string(i));
+    }
+
+    // create constraints
+    double count_nonlinear_cuts = 0;
+    for (indexx i = 0; i < constraints.size(); i++) {
+        GRBLinExpr linExpr = 0;
+        Constraint const& con = constraints[i];
+        for (indexx j = 0; j < con.getAx().size(); j++) {
+            linExpr += con.getAx().getValue(j) * variables.at(con.getAx().getIndex(j));
+        }
+        if (con.getXQx().size() == 0)
+            model->addConstr(linExpr <= con.getB(), "c" + to_string(i));
+        else {
+            count_nonlinear_cuts++;
+            GRBQuadExpr quadExpr = 0;
+            for (indexx j = 0; j < con.getXQx().size(); j++) {
+                quadExpr += con.getXQx().getValue(j) * variables.at(con.getXQx().getRowIndex(j)) * variables.at(con.getXQx().getColIndex(j));
+            }
+            model->addQConstr(linExpr+quadExpr <= con.getB(), "c" + to_string(i) + "Quad");
+            if (verbosity >= 5)
+                cout << endl << con;
+        }
+    }
+
+    // set objective
+    GRBLinExpr linExpr = 0;
+    for (indexx i = 0; i < c.size(); i++) {
+        linExpr += c.getValue(i) * variables[c.getIndex(i)];
+    }
+    GRBQuadExpr quadExpr = 0;
+    for (indexx i = 0; i < Q.size(); i++) {
+        quadExpr += Q.getValue(i) * variables[Q.getRowIndex(i)] * variables[Q.getColIndex(i)];
+    }
+    model->setObjective(linExpr+quadExpr, GRB_MINIMIZE);
+
+    if (verbosity >= 5 and count_nonlinear_cuts >= 1) {
+        try {
+            auto reduced_model = model->presolve();
+            reduced_model.write("presolved_model.lp");
+            model->write("model.lp");
+            cout << "presolved model written to file presolved_model.lp" << endl;
+        } catch (GRBException const& e) {
+            cout << "could not write presolve because of gurobi error code " << e.getErrorCode() << endl;
+        }
+    }
+    return model;
+}
 
 shared_ptr<GRBModel> NodeGurobi::solveModel(
-        shared_ptr<GRBEnv> const& globalEnv,
+        shared_ptr<GRBEnv> const &globalEnv,
         double solverTimeLimit,
         int verbosity,
         bool activateNumericFocus,
@@ -131,71 +216,18 @@ shared_ptr<GRBModel> NodeGurobi::solveModel(
     // and populates m_isSolved and m_solution
 
     try {
-        if (verbosity >= 4) {
-            globalEnv->set(GRB_IntParam_LogToConsole, 1);
-            globalEnv->set(GRB_IntParam_OutputFlag, 1);
-        }
-        shared_ptr<GRBModel> model = make_shared<GRBModel>(*globalEnv);
-        model->set(GRB_DoubleParam_TimeLimit, solverTimeLimit);
-
-        // in case of numerical issues, the following options could help:
-        if (activateNumericFocus)
-            model->set(GRB_IntParam_NumericFocus, 3);
-
+        int thresholdLogging = 5;
         int numberOfVariables = m_subproblem->getNumberOfVariables();
         vector<GRBVar> variables(numberOfVariables);
 
-        // create variables
-        MySparseVector c = m_subproblem->getC();
-        MySparseMatrix Q = m_subproblem->getQ();
-        vector<Constraint> constraints = m_subproblem->getConstraints();
-        for (indexx i = 0; i < numberOfVariables; i++) { // variables called "x" + to_string(i)
-            variables[i] = model->addVar(-GRB_INFINITY, GRB_INFINITY, 0, GRB_CONTINUOUS, "x" + to_string(i));
-        }
-
-        // create constraints
-        double count_nonlinear_cuts = 0;
-        for (indexx i = 0; i < constraints.size(); i++) {
-            GRBLinExpr linExpr = 0;
-            Constraint const& con = constraints[i];
-            for (indexx j = 0; j < con.getAx().size(); j++) {
-                linExpr += con.getAx().getValue(j) * variables.at(con.getAx().getIndex(j));
-            }
-            if (con.getXQx().size() == 0)
-                model->addConstr(linExpr <= con.getB(), "c" + to_string(i));
-            else {
-                count_nonlinear_cuts++;
-                GRBQuadExpr quadExpr = 0;
-                for (indexx j = 0; j < con.getXQx().size(); j++) {
-                    quadExpr += con.getXQx().getValue(j) * variables.at(con.getXQx().getRowIndex(j)) * variables.at(con.getXQx().getColIndex(j));
-                }
-                model->addQConstr(linExpr+quadExpr <= con.getB(), "c" + to_string(i) + "Quad");
-                if (verbosity >= 4)
-                    cout << endl << con;
-            }
-        }
-
-        // set objective
-        GRBLinExpr linExpr = 0;
-        for (indexx i = 0; i < c.size(); i++) {
-            linExpr += c.getValue(i) * variables[c.getIndex(i)];
-        }
-        GRBQuadExpr quadExpr = 0;
-        for (indexx i = 0; i < Q.size(); i++) {
-            quadExpr += Q.getValue(i) * variables[Q.getRowIndex(i)] * variables[Q.getColIndex(i)];
-        }
-        model->setObjective(linExpr+quadExpr, GRB_MINIMIZE);
-
-        if (verbosity >= 4 and count_nonlinear_cuts >= 1) {
-            try {
-                auto reduced_model = model->presolve();
-                reduced_model.write("presolved_model.lp");
-                model->write("model.lp");
-                cout << "presolved model written to file presolved_model.lp" << endl;
-            } catch (GRBException const& e) {
-                cout << "could not write presolve because of gurobi error code " << e.getErrorCode() << endl;
-            }
-        }
+        auto model = buildGurobiModel(
+            globalEnv,
+            solverTimeLimit,
+            verbosity,
+            thresholdLogging,
+            activateNumericFocus,
+            variables,
+            true);
 
         model->write("nodeModel.lp");
 
@@ -207,7 +239,7 @@ shared_ptr<GRBModel> NodeGurobi::solveModel(
 
         if (status == GRB_OPTIMAL) {
             // getting solution quality information
-            if (verbosity >= 4) {
+            if (verbosity >= 5) {
                 model->write("model.mps");
                 printSolutionQuality(model);
             }
@@ -254,19 +286,95 @@ shared_ptr<GRBModel> NodeGurobi::solveModel(
             }
             m_solution = {status, {}, 1e100};
         }
-        if (verbosity >= 4) {
+        if (verbosity >= thresholdLogging) {
             globalEnv->set(GRB_IntParam_LogToConsole, 0);
             globalEnv->set(GRB_IntParam_OutputFlag, 0);
         }
         return model;
     } catch(GRBException const& e) {
+        m_solution = {e.getErrorCode(), {}, 1e100};
         cout << "Error code = " << e.getErrorCode() << endl;
         cout << e.getMessage() << endl;
-    } catch(std::exception const& e) {
-        cerr << "Error code = " << e.what() << endl;
-        throw runtime_error("Exception during optimization");
     }
     return make_shared<GRBModel>(*globalEnv);
+}
+
+void NodeGurobi::writeMibSFiles(
+    shared_ptr<GRBEnv> const &globalEnv,
+    double solverTimeLimit,
+    int verbosity,
+    bool activateNumericFocus,
+    string const& instanceName) {
+    try {
+        int thresholdLogging = 5;
+        int numberOfVariables = m_subproblem->getNumberOfVariables();
+        vector<GRBVar> variables(numberOfVariables);
+
+        auto model = buildGurobiModel(
+            globalEnv,
+            solverTimeLimit,
+            verbosity,
+            thresholdLogging,
+            activateNumericFocus,
+            variables,
+            false);
+        model->write(instanceName+".mps");
+        cout << "mps file:       " << instanceName+".mps" << endl;
+
+        // .aux file
+        // with lower-level: y_i (variables) and x_-i (parameters) for each player i
+        // fulfill .aux file as in the name-based auxiliary file model of
+        // https://coin-or.github.io/MibS/input.html
+        // the lower-level objective coefficients are given with the LL variables after @VARSBEGIN
+        ofstream auxFile;
+        auxFile.open(instanceName+".aux", ofstream::trunc);
+        auxFile << "@NUMVARS" << endl;
+        int numVars = m_subproblem->getNumberOfVariables();
+        int numLowerLevelVars = numVars/2;
+        auxFile << numLowerLevelVars << endl;
+        auxFile << "@NUMCONSTRS" << endl;
+
+        // computation of number of constraints of the lower-level
+        vector<indexx> lowerLevelConstraintList = {};
+        int cpt = 0;
+        for (auto const& con : m_subproblem->getConstraints()) {
+            auto indices = con.getAx().getIndices();
+            double maxIndex = *ranges::max_element(indices.begin(), indices.end());
+            if (maxIndex >= numLowerLevelVars)
+                lowerLevelConstraintList.push_back(cpt);
+            cpt++;
+        }
+        int numLowerLevelConstrs = static_cast<int>(lowerLevelConstraintList.size());
+        auxFile << numLowerLevelConstrs << endl;
+
+        auxFile << "@VARSBEGIN" << endl;
+        for (indexx i = numLowerLevelVars; i < numVars; i++) {
+            // minus sign because the upper-level objective is -1 times the lower-level objective
+            double coef = -m_subproblem->getC().getCoefficientValue(i);
+            auxFile << "x" << i << " " << coef << endl;
+        }
+        auxFile << "@VARSEND" << endl;
+
+        auxFile << "@CONSTRSBEGIN" << endl;
+        for (indexx const i : lowerLevelConstraintList)
+            auxFile << "c" << i << endl;
+        auxFile << "@CONSTRSEND" << endl;
+
+        auxFile << "@NAME" << endl;
+        auxFile << instanceName << endl;
+        auxFile << "@MPS" << endl;
+        auxFile << instanceName << ".mps" << endl;
+
+        // auto constraints = m_subproblem->getConstraints();
+        auxFile.close();
+        cout << "auxiliary file: " << instanceName + ".aux" << endl;
+
+
+    } catch(GRBException const& e) {
+        m_solution = {e.getErrorCode(), {}, 1e100};
+        cout << "Gurobi error code in writeMibSFiles = " << e.getErrorCode() << endl;
+        cout << e.getMessage() << endl;
+    }
 }
 
 shared_ptr<GRBModel> NodeGurobi::checkPointFeasibility(
@@ -296,12 +404,10 @@ shared_ptr<GRBModel> NodeGurobi::checkPointFeasibility(
         MySparseVector c = m_subproblem->getC();
         MySparseMatrix Q = m_subproblem->getQ();
         vector<Constraint> constraints = m_subproblem->getConstraints();
-        for (indexx i = 0; i < numberOfVariables-1; i++) {
+        for (indexx i = 0; i < numberOfVariables; i++) {
             // variables called "x" + to_string(i)
             variables[i] = model->addVar(point[i], point[i], 0, GRB_CONTINUOUS, "x" + to_string(i));
         }
-        // specific bounds for lambda the objective value
-        variables[numberOfVariables-1] = model->addVar(-GRB_INFINITY, GRB_INFINITY, 0, GRB_CONTINUOUS, "x_lambda");
 
         // create constraints
         for (indexx i = 0; i < constraints.size(); i++) {
@@ -368,6 +474,7 @@ shared_ptr<GRBModel> NodeGurobi::checkPointFeasibility(
         throw runtime_error("Exception during optimization");
     }
     return make_shared<GRBModel>(*globalEnv);
+    // TODO: do proper garbage collection as said in https://www.gurobi.com/documentation/current/refman/cs_model.html
 }
 
 void printSolutionQuality(shared_ptr<GRBModel> const& model) {

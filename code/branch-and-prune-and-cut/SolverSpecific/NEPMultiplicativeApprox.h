@@ -17,6 +17,7 @@ public:
 
     // setter and getter for m_factor
     [[nodiscard]] double getApproximationPlayer(indexx player) const override;
+    [[nodiscard]] std::vector<double> getApproximation() const override;
     void setApproximationPlayer(double approximation, indexx player) override;
 
     // change print to display m_factor
@@ -94,11 +95,20 @@ public:
         indexx player,
         std::vector<double> const& point);
 
+    // compute NE-free set for IC for xi when pi_i is convex in x_-i and
+    // lipschitz continuous in x
+    [[nodiscard]] std::vector<Constraint> getOldNEFreeSetXiLipschitz(
+        indexx player,
+        std::vector<double> const& point);
+
+    // debug negative roots intersectionRayQuadraticCurveImplementationGame
+    double intersectionForLipschitzIC(indexx player, Constraint const &constraint, std::vector<double> const &solution,
+                            Eigen::RowVectorXd const &ray) const override;
+
     // derive an intersection cut for each player
     [[nodiscard]] std::vector<Cut> deriveICForEachPlayer(
         std::shared_ptr<GRBModel> const& model,
         std::vector<double> const& point,
-        std::string const& whichCutString,
         double tolerance, int verbosity);
 
     // derive cuts
@@ -110,8 +120,11 @@ public:
                              std::shared_ptr<OptimizationProblem> const &nodeProblem,
                              int verbosity) override;
 
-    // set m_positiveResponses
+    // set m_nonnegativeResponses
     void setPositiveResponses(bool b) override;
+
+    // throw an error if the sign of the node value does not satisfy the correct one
+    void checkSignNodeValue(std::shared_ptr<Node> const& node) const override;
 
     // set lipschitz constants for NE-free set
     void setLipschitzConstants(
@@ -126,7 +139,7 @@ protected:
     // parameter set to true if the response values are positive, to false if negative
     // really important because it changes the constraint linking
     // lambda and the responses
-    bool m_positiveResponses;
+    bool m_nonnegativeResponses;
 
     // contains the lipschitz constants of costs of the player
     // only used for GNEP implementation games,

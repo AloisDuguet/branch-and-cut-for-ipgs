@@ -37,8 +37,24 @@ public:
                                                 int verbosity,
                                                 double const& tolerance = 5e-6) const;
 
+    // return false if point is not feasible for constraints
+    bool checkPointFeasibility(std::vector<double> const &point,
+                               std::vector<Constraint> const &constraints,
+                               bool verboseIfFeasible) const;
+
     // evaluate lhs of constraint
     [[nodiscard]] double evalLhs(std::vector<double> const& point) const;
+
+    // check that a constraint is an branching constraint with integer bound
+    [[nodiscard]] bool isIntegerBranchingConstraint() const;
+
+    // check if a constraint gives an upper bound
+    [[nodiscard]] bool isUpperBoundProof(
+        std::vector<bool> const& areVariablesNonnegativ) const;
+
+    // return a list of constraints being upper bounds written as branching constraints
+    // from a constraint proving upper bounds
+    [[nodiscard]] std::vector<Constraint> extractUpperBoundConstraints() const;
 
 protected:
     // constraint ax + xQx <= b

@@ -53,9 +53,13 @@ public:
 
     [[nodiscard]] double getValue(indexx k) const;
 
-    [[nodiscard]] indexx getRowIndex(indexx k) const;
+    [[nodiscard]] std::vector<double> getValues() const;
 
+    [[nodiscard]] indexx getRowIndex(indexx k) const;
     [[nodiscard]] indexx getColIndex(indexx k) const;
+    [[nodiscard]] std::vector<indexx> getRowIndices() const;
+    [[nodiscard]] std::vector<indexx> getColIndices() const;
+
 
     // computes the euclidean norm between coefficients of v and *this
     [[nodiscard]] double distanceMeasure(MySparseMatrix const& M) const;

@@ -68,11 +68,15 @@ public:
     // in the last two iterations of the same node
     virtual bool detectCycling(std::vector<double> const& solution);
 
+    // decide if cuts should be added or branching should be done
+    // depending on the current number of cuts in the node
+    void cutOrBranch(std::vector<double> const& solution);
+
     // try to produce cuts and add them to m_node
     virtual void addCuts(std::vector<double> const& solution);
 
     // handle cycling by slightly modifying the new cuts
-    void handleCycling(std::vector<Cut> &cuts, std::vector<double> const& solution);
+    virtual void handleCycling(std::vector<double> const& solution);
 
     // check validity of cuts derived and add the valid ones to the node problem
     void checkCutsValidity(std::vector<Constraint> const& cuts, std::vector<double> const& solution);
@@ -132,6 +136,14 @@ public:
     [[nodiscard]] bool checkTimeLimit(
         std::chrono::time_point<std::chrono::system_clock> const& startTime) const;
 
+    // return total elapsed time in the algorithm (constructor time + remaining)
+    [[nodiscard]] double getTimeInAlgorithm(
+        std::chrono::time_point<std::chrono::high_resolution_clock> const& startTime) const;
+
+    // return time remaining with some margin for exiting in time
+    [[nodiscard]] double getRemainingTime(
+        std::chrono::time_point<std::chrono::high_resolution_clock> const& startTime) const;
+
     [[nodiscard]] double computeSolverTimeLimit(
         std::chrono::time_point<std::chrono::high_resolution_clock> const& startTime) const;
 
@@ -149,6 +161,12 @@ public:
     // check that a point is not cut off by a group of cuts
     void checkPointNotCut(std::vector<Cut> const& cuts,
                           std::vector<double> const& point);
+
+    // check if node is a leaf node, i.e., branching will find
+    // no new branching constraint to add
+    bool isBranchingPossible() const;
+
+    bool isIntegerSolutionOrEquivalent() const;
 
 protected:
     // attributes related to branching
@@ -189,8 +207,14 @@ protected:
     // "basicAlgorithm" or "cuttingBeforeBranching"
     std::string m_algorithmVariant;
 
+    // for integer branching: branch instead of cut if at least
+    // maxCutsPerNode already derived in this node, -1 stands for infinity
+    int m_maxCutsPerNode;
+
     // only matter for "cuttingBeforeBranching" algorithmVariant
     int m_maxNonIntegerCutsPerNode;
+
+    bool m_integerBranchingActive;
 
     // ----------------------------------------------------------------
     // attributes that are tolerances
@@ -239,7 +263,7 @@ protected:
     int m_verbosity;
 
     // ----------------------------------------------------------------
-    // anticycling attributes
+    // anticycling attributes and other warnings
 
     // bool with value false at start and true if cycling detected at least once
     bool m_antiCyclingMeasuresTaken;
@@ -252,6 +276,11 @@ protected:
 
     // factor multiplying the bonus after each failure to solve the cycling
     double m_factorIncreaseForRestrictedCut;
+
+    // bool indicating if the NE accepted bypassed the integer feasibility check
+    // indeed, due to numerical issues, even with branching constraints forcing an
+    // integer solution, it has been observed that some such solutions were refused
+    bool m_NEBypassedIntegerFeasibility;
 };
 
 #endif //BRANCHANDCUTFORGNEP_H

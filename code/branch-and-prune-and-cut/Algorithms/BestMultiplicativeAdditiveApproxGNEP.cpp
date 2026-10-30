@@ -68,13 +68,21 @@ BestMultiplicativeAdditiveApproxGNEP::BestMultiplicativeAdditiveApproxGNEP(
     auto startTime = startChrono();
 
     m_tagProblemPlusInitialApproximationValue =
-        "minMultFixedAddApproxNE-(" + to_string(m_NEP->getApproximationPlayer(0))
+        "minMultFixedAddApproxNE-(" + to_string(BestMultiplicativeApproxGNEP::getApproximation())
         + ";" + to_string(m_NEP->getAdditiveApproximationPlayer(0))
         + ")";
 
     m_toleranceMinApproximation = 0.01;
-    m_NETolerance = 1e-5;
 
+    m_timeSpent += elapsedChrono(startTime);
+}
+
+void BestMultiplicativeAdditiveApproxGNEP::initialize() {
+    BranchAndCutMultiplicativeGNEP::initialize();
+    checkValidArguments();
+}
+
+void BestMultiplicativeAdditiveApproxGNEP::checkValidArguments() const {
     // if multiplicative approximation is not the same for each player, throw an error
     double temp = m_NEP->getMultiplicativeApproximationPlayer(0);
     for (indexx player = 1; player < m_NEP->getNumberOfPlayer(); player++) {
@@ -87,16 +95,17 @@ BestMultiplicativeAdditiveApproxGNEP::BestMultiplicativeAdditiveApproxGNEP(
         if (temp != m_NEP->getAdditiveApproximationPlayer(player))
             throw logic_error("additive approximation should be the same for each player");
     }
-
-    m_timeSpent += elapsedChrono(startTime);
+    if (!m_globalCutSwitch and m_algorithmVariant != "basicAlgorithm")
+        throw logic_error("algorithm variant != basicAlgorithm valid only with globally valid cuts");
 }
 
-void BestMultiplicativeAdditiveApproxGNEP::printParameters(std::ostream &os) const {
+void BestMultiplicativeAdditiveApproxGNEP::printParameters(ostream &os) const {
     BranchAndCutMultiplicativeGNEP::printParameters(os);
     os << "min multiplicative approximation proved included in ["
-       << m_minApproximationPossible << "," << m_bestApproximationFound << "]" << std::endl;
-    os << "with fixed additive approximation " << m_NEP->getAdditiveApproximationPlayer(0) << endl;
-    os << "currently looking for a " << to_string(getApproximation()) << "-NE" << endl;
+       << m_minApproximationPossible << "," << m_bestApproximationFound << "]" << endl
+       << "with fixed additive approximation " << m_NEP->getAdditiveApproximationPlayer(0) << endl
+       << "currently looking for a multiplicative approx "
+       << to_string(getApproximation()) << endl;
 }
 
 BestMultiplicativeAdditiveBranchOutput* BestMultiplicativeAdditiveApproxGNEP::solve() {
@@ -111,33 +120,35 @@ BestMultiplicativeAdditiveBranchOutput* BestMultiplicativeAdditiveApproxGNEP::so
     try {
         whileLoopSolve(startTime);
         return returnHandler(startTime);
-    } catch (std::exception const& e) {
+    } catch (exception const& e) {
         return returnHandler(startTime, e.what());
     }
 }
 
-bool BestMultiplicativeAdditiveApproxGNEP::NEHandler(std::vector<double> const &solution) {
+bool BestMultiplicativeAdditiveApproxGNEP::NEHandler(vector<double> const &solution) {
     // a getApproximation()-NE has been found
     // but a potentially better delta has been found: a maxRegret-NE has been found
-    double maxRegret = computeNEWithMinMultiplicativeAndFixedAdditive(solution, 0);
-    m_approximationValueOfLambdaConstraintsInQueueState = maxRegret;
+    double maxMultiplicative = computeNEWithMinMultiplicativeAndFixedAdditive(solution);
+    m_approximationValueOfLambdaConstraintsInQueueState = maxMultiplicative;
 
-    logNEFound(maxRegret);
+    logNEFound(maxMultiplicative);
 
+    // TODO: 'regrets' for 4th argument of incrementSolutionList
+    // can be computed player by player in a similar way as
+    // with method computeNEWithMinMultiplicativeAndFixedAdditive
     m_nodeSelector->incrementSolutionList(m_NEP,
                                           solution,
                                           computeSocialWelfare(m_node->getSolution()),
                                           m_NEP->differencesToBestResponseValues(solution),
                                           m_NETolerance);
 
-    return checkAndChangeApproximation(maxRegret);
+    return checkAndChangeApproximation(maxMultiplicative);
 }
 
 void BestMultiplicativeAdditiveApproxGNEP::logNEFound(double const maxRegret) const {
     if (m_verbosity >= 1) {
         cout << "----> "
-             << getApproximation()
-             << "-NE found with max multiplicative approximation "
+             << "approximate NE found with max multiplicative approximation "
              << maxRegret
              << " in Node "
              << m_node->getNodeNumber()
@@ -147,7 +158,6 @@ void BestMultiplicativeAdditiveApproxGNEP::logNEFound(double const maxRegret) co
     }
 }
 
-
 void BestMultiplicativeAdditiveApproxGNEP::logNoNEFound() const {
     if (m_verbosity >= 1) {
         cout << "----> tree search finished with no (" << m_minApproximationPossible
@@ -155,8 +165,8 @@ void BestMultiplicativeAdditiveApproxGNEP::logNoNEFound() const {
              << "-NE found in Node " << m_node->getNodeNumber() << endl;
         cout << "number of cuts added to the model at the moment: "
              << m_totalNumberOfCuts - m_currentNumberOfCutsDropped << endl;
-        cout << "best multiplicative approx for delta is in ]" << m_minApproximationPossible
-             << "," << m_bestApproximationFound << "]" << endl;
+        cout << "best multiplicative approx for delta is in ]" << format("{:.{}g}", m_minApproximationPossible, getPrecisionFloatFormat(m_minApproximationPossible))
+             << "," << format("{:.{}g}", m_bestApproximationFound, getPrecisionFloatFormat(m_bestApproximationFound)) << "]" << endl;
     }
 }
 
@@ -166,12 +176,13 @@ BestMultiplicativeAdditiveBranchOutput *BestMultiplicativeAdditiveApproxGNEP::re
     string optimizationStatus = buildOptimizationStatusString(startTime, errorMsg);
     auto output = new BestMultiplicativeAdditiveBranchOutput(optimizationStatus,
                                   m_nodeSelector->getSolutionList(),
-                                  m_nodeSelector->getExploredNodeNumber(),
+                                  NodeSelector::getExploredNodeNumber(),
                                   m_totalNumberOfCuts,
                                   m_timeSpent,
                                   m_timeCounters["totalCutDerivationTime"],
                                   m_node,
                                   m_antiCyclingMeasuresTaken,
+                                  m_NEBypassedIntegerFeasibility,
                                   m_exactNEPossible,
                                   m_minApproximationPossible,
                                   m_bestApproximationFound,

@@ -17,6 +17,7 @@ public:
                     double cutComputationTime,
                     std::shared_ptr<Node> finalNode,
                     bool antiCyclingMeasuresTaken,
+                    bool NEBypassedIntegerFeasibility,
                     bool exactNEPossible,
                     double minDeltaPossible,
                     double bestDeltaFound) :
@@ -27,7 +28,8 @@ public:
                     computationTime,
                     cutComputationTime,
                     move(finalNode),
-                    antiCyclingMeasuresTaken) {
+                    antiCyclingMeasuresTaken,
+                    NEBypassedIntegerFeasibility) {
         this->exactNEPossible = exactNEPossible;
         this->minDeltaPossible = minDeltaPossible;
         this->bestDeltaFound = bestDeltaFound;

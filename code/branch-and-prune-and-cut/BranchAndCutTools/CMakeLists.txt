@@ -13,8 +13,6 @@ add_library(BranchAndCutTools
         BranchingRule/BranchingRuleRandom.cpp
         Helpers/CommonlyUsedFunctions.h
         Helpers/CommonlyUsedFunctions.cpp
-        Helpers/CutInformation.cpp
-        Helpers/CutInformation.h
         LinearAlgebra/MySparseVector.h
         LinearAlgebra/MySparseVector.cpp
         LinearAlgebra/MySparseMatrix.h
@@ -35,6 +33,8 @@ add_library(BranchAndCutTools
         OptimizationProblem/NEPAbstractSolver.cpp
         OptimizationProblem/SolveOutput.cpp
         OptimizationProblem/SolveOutput.h
+        Helpers/CutInformation.cpp
+        Helpers/CutInformation.h
 )
 
 set(CMAKE_CXX_STANDARD 20)
@@ -43,9 +43,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(GUROBI_INCLUDE_DIRS $ENV{GUROBI_HOME}/include/)
 # add folder of FindGUROBI.cmake to CMAKE_MODULE_PATH
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
-
 find_package(GUROBI REQUIRED)
-target_link_libraries(branch_and_prune_and_cut PRIVATE gurobi)
+target_link_libraries(branch_and_prune_and_cut PRIVATE $ENV{GUROBI_CXX_LIBRARY})
+target_link_libraries(branch_and_prune_and_cut PRIVATE $ENV{GUROBI_LIBRARY})
 
 target_include_directories(BranchAndCutTools PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}

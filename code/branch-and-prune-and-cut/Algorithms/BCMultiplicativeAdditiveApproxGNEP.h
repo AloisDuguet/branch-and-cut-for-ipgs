@@ -34,9 +34,6 @@ public:
 
     // write one-line result with algorithm
     void writeOneLineResult(NEPBranchOutput const& output, std::ostream& os) const override;
-
-    // write logs when an NE is found
-    void logNEFound(std::vector<double> const& solution);
 };
 
 

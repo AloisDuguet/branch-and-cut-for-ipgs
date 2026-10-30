@@ -74,6 +74,13 @@ public:
         bool activateNumericFocus,
         double feasibilityTol);
 
+    // write .mps and .aux file for MibS to solve the bilevel problem
+    virtual void writeMibSFiles(std::shared_ptr<GRBEnv> const& globalEnv,
+                                double solverTimeLimit,
+                                int verbosity,
+                                bool activateNumericFocus,
+                                std::string const& instanceName);
+
     virtual std::shared_ptr<GRBModel> checkPointFeasibility(
         std::vector<double> const& point,
         std::shared_ptr<GRBEnv> const& globalEnv,
@@ -86,6 +93,9 @@ public:
 
     // set attribute m_isSolved to false
     void setUnsolved();
+
+    // set attribute m_isSolved to true
+    void setSolved();
 
     // print m_solution
     void printSolution() const;
@@ -105,6 +115,9 @@ public:
 
     // return m_cuts
     [[nodiscard]] std::vector<Cut> getCuts() const;
+
+    // empty m_cuts
+    void emptyCuts();
 
     // used to add a cut to the rootNodeProblem so that it acts as a global cut
     void addCutToRootNode(Cut const& cut);
@@ -149,6 +162,30 @@ public:
     // print all constraints of the node model together with the evaluation of the lhs by the node solution
     void printConstraintsSatisfaction() const;
 
+    // return variableBounds
+    std::vector<VariableBound> getVariableBounds();
+
+    // return bounds of an integer variable as given by current branching constraints
+    [[nodiscard]] static Bounds computeVariableBounds(
+        indexx i,
+        std::vector<Constraint> const& branchingConstraints);
+
+    // retrieve all branching constraints up to the root node
+    [[nodiscard]] std::vector<Constraint> getAllBranchingConstraints() const;
+
+    // return list of branching constraints + other constraints bounding one variable
+    [[nodiscard]] std::vector<Constraint> getBoundingConstraints() const;
+
+    // initialize variableBounds with the constraints of the node problem
+    void initializeVariableBounds();
+
+    // update variableBound with the branching constraint
+    void updateVariableBound(Constraint const& branch);
+
+    // return if the node is a leaf node, i.e., branching will find
+    // no new branching constraint to add
+    bool isLeafNode() const;
+
 protected:
     // attribute that should be kept even after treating the node:
 
@@ -174,6 +211,9 @@ protected:
 
     // solution of the node problem
     SolveOutput m_solution;
+
+    // bounds on variables given by base node problem
+    std::vector<VariableBound> m_variableBounds;
 };
 
 #endif //NODE_H

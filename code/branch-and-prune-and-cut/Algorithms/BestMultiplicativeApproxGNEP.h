@@ -30,10 +30,10 @@ public:
     void printParameters(std::ostream& os) const override;
 
     // set approximation for each player to value
-    void setApproximation(double approximationValue) const;
+    virtual void setApproximation(double approximationValue) const;
 
     // get approximation (which is the same for each player)
-    double getApproximation() const;
+    virtual double getApproximation() const;
 
     // compute minimum additive delta-NE
     BestMultiplicativeBranchOutput* solve() override;
@@ -45,9 +45,10 @@ public:
     bool checkNE(std::vector<double> const& solution) const;
 
     // compute minimum factor such that a (minFactor,additiveApprox)-NE has been found
+    [[nodiscard]] double computeMinApproximationParameter(
+        std::vector<double> const &solution) const;
     [[nodiscard]] virtual double computeNEWithMinMultiplicativeAndFixedAdditive(
-        std::vector<double> const& solution,
-        int verbosity) const;
+        std::vector<double> const& solution) const;
 
     // rewrite NEHandler to return false if there is hope to find a better delta, else true
     bool NEHandler(std::vector<double> const &solution) override;
@@ -72,8 +73,21 @@ public:
     // recover queue state
     void recoverQueueState();
 
+    // find index of first lambda constraint
+    indexx findFirstLambdaConstraint(std::vector<Constraint> const& constraints,
+                                     indexx lambdaIndexInProblem);
+
+    // update lambda constraints of node given the first index of lambda constraint
+    void updateLambdaConstraints(std::vector<Constraint> & constraints,
+                                 indexx posLambdaConstraint);
+
+    // adapt lambda constraints of one given node
+    void adaptNodeToNewApproximation(std::shared_ptr<Node> const& node,
+                                      indexx lambdaIndexInProblem,
+                                      bool removeCuts);
+
     // adapt constraints involving lambda after approximation value changed
-    void adaptLambdaConstraints(bool removeCuts = false) const;
+    void adaptTreeSearchToNewApproximation(bool removeCuts);
 
     // override the base method to handle out of memory in subsolver via branching
     void unsolvedNodeHandler(std::chrono::time_point<std::chrono::system_clock> startTime);
@@ -95,6 +109,12 @@ public:
         std::chrono::time_point<std::chrono::system_clock> startTime,
         std::string errorMsg = "no error");
 
+    // check if point is a feasible point of the node problem and if yes if it is an NE
+    void checkFeasibilityAndEquilibrium(std::vector<double> const& point) const;
+
+    // check if checking for cycling is necessary
+    void handleCycling(std::vector<double> const &solution) override;
+
 protected:
     // name of problem solved with initial approximation value
     std::string m_tagProblemPlusInitialApproximationValue;
@@ -102,6 +122,10 @@ protected:
     // minimum and maximum values of approximation factor possible for the moment
     double m_minApproximationPossible;
     double m_bestApproximationFound;
+
+    // keep in memory the minimum value of approximation parameter minimized
+    // 1 for multiplicative parameter minimization, 0 for additive
+    double m_originalMinApproximationPossible;
 
     // stopping criterion for the tolerance on the bounds on approximation factor
     double m_toleranceMinApproximation;

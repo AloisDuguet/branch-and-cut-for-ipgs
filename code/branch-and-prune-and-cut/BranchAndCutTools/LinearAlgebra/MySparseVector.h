@@ -54,9 +54,17 @@ public:
 
     void deleteCoefficient(indexx index);
 
+    // returns the value associated to the variable k, i.e.,
+    // m_indices[i] == k
+    [[nodiscard]] double getCoefficientValue(indexx k) const;
+
+    // returns the value of the k-th coefficient in the order
+    // of m_values, i.e., m_values[k]
     [[nodiscard]] double getValue(indexx k) const;
 
     [[nodiscard]] std::vector<double> getValues() const;
+
+    [[nodiscard]] std::vector<indexx> getIndices() const;
 
     [[nodiscard]] indexx getIndex(indexx k) const;
 
@@ -73,6 +81,9 @@ public:
     // the default feasibility tolerance of gurobi
     [[nodiscard]] bool compareApproxEqual(MySparseVector const& y,
                                           double tolerance = 1e-6) const;
+
+    // remove coefs with absolute value smaller than tolerance for numerical stability
+    void removeCoefsCloseToZero(double tolerance, int verbosity);
 
 protected:
     std::vector<double> m_values;

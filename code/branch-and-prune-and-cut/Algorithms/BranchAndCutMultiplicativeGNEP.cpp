@@ -44,11 +44,8 @@ BranchAndCutMultiplicativeGNEP::BranchAndCutMultiplicativeGNEP(
     auto startTime = startChrono();
     // give proper size to factor in case it is defined as a vector of 1 element
     // indeed, it is then a shortcut for same approx value for each player
-    cout << "factor before extension: " << factor << endl;
-    if (factor.size() == 1 and NEPInit->getNumberOfPlayer() > 1) {
-        for (indexx player = 1; player < NEPInit->getNumberOfPlayer(); player++)
-            factor.push_back(factor[0]);
-    }
+    if (factor.size() == 1 and NEPInit->getNumberOfPlayer() > 1)
+        factor = expandToVector(factor[0], NEPInit->getNumberOfPlayer());
 
     if (modelTypeString == "manyEtasGurobi") {
         if (gameTypeString != "implementationGame")
@@ -66,14 +63,16 @@ BranchAndCutMultiplicativeGNEP::BranchAndCutMultiplicativeGNEP(
 
     // put feasibility tolerance of subproblem to the standard
     m_feasibilityTol = 1e-6;
+    m_NETolerance = 1e-5;
+    m_pruningZeroObjTolerance = m_NETolerance;
 
     m_timeSpent += elapsedChrono(startTime);
 }
 
 void BranchAndCutMultiplicativeGNEP::initialize() {
-    BranchAndCutForGNEP::initialize();
-
     setPositiveResponse();
+    checkValidArguments();
+    BranchAndCutForGNEP::initialize();
 
     // compute and save lipschitz constants of costs of player
     // if the NE-free set using lipschitz constant is used
@@ -85,21 +84,21 @@ void BranchAndCutMultiplicativeGNEP::initialize() {
 
 void BranchAndCutMultiplicativeGNEP::setPositiveResponse() {
     // set if responses are positive or negative depending on gameTypeString
-    if (m_gameTypeString == "NEPImplementationGame"
-        or m_gameTypeString == "NEP-fullInteger"
+    if (m_gameTypeString == "NEP-fullInteger"
         or m_gameTypeString == "NEP-mixedInteger"
         or m_gameTypeString == "GNEP-fullInteger"
-        or m_gameTypeString == "implementationGame")
+        or m_gameTypeString == "implementationGame"
+        or m_gameTypeString == "GNEPQuadraticKnapsack"
+        or m_gameTypeString == "randomGNEP"
+        or m_gameTypeString == "randomGNEPQuadratic")
         m_NEP->setPositiveResponses(false);
-    else if (m_gameTypeString == "GNEP-maxFlowGame") {
-        // add gameTypeString with positive best responses to the test above
+    else if (m_gameTypeString == "NEPImplementationGame"
+        or m_gameTypeString == "GNEP-maxFlowGame")
         m_NEP->setPositiveResponses(true);
-    }
     else {
-        throw logic_error("gameTypeString not linked to positive or negative best responses");
+        throw logic_error("gameTypeString not associated to positive or negative best responses");
     }
 }
-
 
 void BranchAndCutMultiplicativeGNEP::checkValidArguments() const {
     // not used in the constructor because it is already used in the base constructor
@@ -141,6 +140,10 @@ void BranchAndCutMultiplicativeGNEP::solveNode(double solverTimeLimit) {
                                      m_verbosity,
                                      true,
                                      m_feasibilityTol);
+    // removing this check which does not prevent mathematical errors,
+    // but prevents misuse of games with nonnegative and nonpositive response values
+    // if (m_node->isSolved())
+    //     m_NEP->checkSignNodeValue(m_node);
 }
 
 NEPBranchOutput* BranchAndCutMultiplicativeGNEP::solve() {
@@ -180,8 +183,7 @@ NEPBranchOutput* BranchAndCutMultiplicativeGNEP::solve() {
                         if (NEHandler(solution))
                             break;
                     } else {
-                        // add a cut and iterate on the same Node
-                        addCuts(solution);
+                        cutOrBranch(solution);
                     }
                 } else {
                     // usual branching case
@@ -201,6 +203,15 @@ NEPBranchOutput* BranchAndCutMultiplicativeGNEP::solve() {
 }
 
 void BranchAndCutMultiplicativeGNEP::checkBestResponseValueSigns() const {
+    if (m_gameTypeString == "GNEP-maxFlowGame") {
+        for (indexx player = 0; player < m_NEP->getNumberOfPlayer(); player++) {
+            if (m_NEP->evalResponseValue(player, m_node->getSolution().solution) < 0) {
+                cerr << "positive response value detected for player " << player << ": ";
+                cerr << m_NEP->evalResponseValue(player, m_node->getSolution().solution) << endl;
+                throw logic_error("response values should be nonnegative");
+            }
+        }
+    }
 
     if (m_verbosity >= 3) {
         for (indexx player = 0; player < m_NEP->getNumberOfPlayer(); player++) {
@@ -277,13 +288,13 @@ void BranchAndCutMultiplicativeGNEP::logCutNotAdded() const {
         cout << "cut not added because it does not cut off the solution" << endl;
     }
     else if (m_verbosity >= 2) {
-        cout << "approximation factor: " << m_NEP->getApproximationPlayer(0) << endl;
+        cout << "approximation factor: " << m_NEP->getApproximation() << endl;
         cout << "cut not added because it does not cut off the solution" << endl;
     }
 }
 
 void BranchAndCutMultiplicativeGNEP::logNoCutAdded() const {
-    cout << "approximation factor: " << m_NEP->getApproximationPlayer(0) << endl;
+    cout << "approximation factor: " << m_NEP->getApproximation() << endl;
     cout << "the first lambda constraint should be:" << endl;
     cout << m_NEP->buildLambdaConstraint(0) << endl;
 }

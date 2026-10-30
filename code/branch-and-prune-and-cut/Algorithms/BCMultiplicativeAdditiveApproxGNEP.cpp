@@ -41,7 +41,6 @@ BCMultiplicativeAdditiveApproxGNEP::BCMultiplicativeAdditiveApproxGNEP(
     auto startTime = startChrono();
     // give proper size to additiveApprox in case it is defined as a vector of 1 element
     // indeed, it is then a shortcut for same additive approx value for each player
-    cout << "additiveApprox before extension: " << additiveApprox << endl;
     if (additiveApprox.size() == 1 and NEPInit->getNumberOfPlayer() > 1) {
         for (indexx player = 1; player < NEPInit->getNumberOfPlayer(); player++)
             additiveApprox.push_back(additiveApprox[0]);
@@ -101,8 +100,7 @@ NEPBranchOutput* BCMultiplicativeAdditiveApproxGNEP::solve() {
                         if (NEHandler(solution))
                             break;
                     } else {
-                        // add a cut and iterate on the same Node
-                        addCuts(solution);
+                        cutOrBranch(solution);
                     }
                 } else {
                     // usual branching case
@@ -144,8 +142,6 @@ bool BCMultiplicativeAdditiveApproxGNEP::NEHandler(vector<double> const &solutio
     if (m_verbosity >= 1)
         cout << "stopping at first NE found" << endl << endl;
 
-    logNEFound(solution);
-
     return true;
 }
 
@@ -164,39 +160,4 @@ void BCMultiplicativeAdditiveApproxGNEP::writeOneLineResult(
     os << sep1;
 
     writeEndOfOneLineResult(output, os);
-}
-
-void BCMultiplicativeAdditiveApproxGNEP::logNEFound(vector<double> const& solution) {
-    if (m_verbosity >= 1) {
-        if (m_gameTypeString == "GNEP-maxFlowGame") {
-            // print number of players sending nonzero flows
-            // by counting the flow exiting the source node
-            auto [numberOfPlayers,
-            numberOfNodes,
-            numberOfEdges,
-            network,
-            capacities,
-            sourceSinks,
-            loadCosts,
-            olddemands,
-            oldpMax,
-            oldu] = parseImplementationGameGNEP(m_instanceName);
-            int nonzeroFlow = 0;
-            for (indexx player = 0; player < numberOfPlayers; player++) {
-                auto sourcePlayer = static_cast<indexx>(sourceSinks[player].front());
-                double flowPlayer = 0;
-                for (indexx networkInfoIndex = 0; networkInfoIndex < network.size(); networkInfoIndex++)
-                    if (network.getRowIndex(networkInfoIndex) == sourcePlayer) {
-                        flowPlayer += network.getValue(networkInfoIndex)*solution[
-                            player*numberOfEdges + network.getColIndex(networkInfoIndex)];
-                    }
-                if (flowPlayer > 0) {
-                    nonzeroFlow++;
-                }
-                cout << "player " << player << " has exiting flow " << flowPlayer << endl;
-            }
-            cout << "number of players with nonzero flows: " << nonzeroFlow
-                 << " / " << numberOfPlayers << endl;
-        }
-    }
 }

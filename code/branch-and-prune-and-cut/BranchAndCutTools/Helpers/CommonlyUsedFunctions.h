@@ -15,7 +15,19 @@
 #define MY_INF std::numeric_limits<double>::infinity()
 
 // typedefs
+// TODO: typedef int index in a namespace
 typedef int indexx;
+
+// structs
+struct Bounds {
+    int lb;
+    int ub;
+};
+
+struct VariableBound {
+    indexx variableIndex;
+    Bounds bounds;
+};
 
 // ----------------------------------------------------------------
 // time-related functions
@@ -30,7 +42,7 @@ double elapsedChrono(std::chrono::time_point<std::chrono::high_resolution_clock>
 std::string getCurrentTimeAndDate();
 
 // ----------------------------------------------------------------
-// string and bool functions
+// string, vector and bool functions
 
 // fill in a vector<string> with str and delimiter
 std::vector<std::string> splitString(std::string const& str, char delimiter = ' ');
@@ -43,8 +55,19 @@ bool handleBoolErrorAsMainArgument(char const* arg, int pos);
 // return a vector<double> from a string where double are separated by ','
 std::vector<double> buildVectorFromString(std::string& s);
 
+// compute number of digits in g-formatting so that decimalDigits decimal digits are shown
+int getPrecisionFloatFormat(double value, int decimalDigits = 9);
+
+// return a vector of bool with only true except last position
+std::vector<bool> allButLastTrue(int n);
+
 // return a string from a vector<double>
 std::string to_string(std::vector<double>& v);
+std::string to_string(std::vector<int>& v);
+std::string to_string(std::vector<bool>& v);
+
+// expand a double to a vector<double> with copies of the double
+std::vector<double> expandToVector(double value, int length);
 
 // ----------------------------------------------------------------
 // printing functions
@@ -128,6 +151,14 @@ std::vector<std::vector<double>> parseFlattenedMatrix(std::string const& str,
 // parse a special form of matrix of double
 std::vector<double> parseFlattenedVector(std::string const& str);
 
+// return the first line with target in it
+std::string findFirstLineWith(std::ifstream& file, std::string const& target);
+
+// replaces all strings from by string to in string str
+void replaceAll(std::string& str,
+                const std::string& from,
+                const std::string& to);
+
 // ----------------------------------------------------------------
 // random functions
 
@@ -162,6 +193,15 @@ int randomUniformIntRange(int a, int b);
 
 // double uniform between mean-range and mean+range
 double randomUniformDouble(UniformDistribDouble distrib);
+
+// generate a symmetric positive-definite matrix via an invertible lower-triangular matrix and cholesky
+std::vector<std::vector<double>> symmetricPositiveDefiniteGeneration(
+    int size,
+    Bounds rangeLowerTriangularDiagonal = Bounds(1,16),
+    Bounds rangeLowerPart = Bounds(1,5),
+    double sparsityLowerPart = 0.05,
+    unsigned int seed = 1234,
+    bool isInteger = true);
 
 // --------------------------------------------------------------
 // functions with unordered maps

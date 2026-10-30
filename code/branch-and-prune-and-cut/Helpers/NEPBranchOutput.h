@@ -25,7 +25,8 @@ public:
                     double computationTime,
                     double cutComputationTime,
                     std::shared_ptr<Node> finalNode,
-                    bool antiCyclingMeasuresTaken) {
+                    bool antiCyclingMeasuresTaken,
+                    bool NEBypassedIntegerFeasibility) {
         this->status = move(status);
         this->solutionList = move(solutionList);
         this->numberOfNodesExplored = numberOfNodesExplored;
@@ -34,12 +35,16 @@ public:
         this->cutComputationTime = cutComputationTime;
         this->finalNode = move(finalNode);
         this->antiCyclingMeasuresTaken = antiCyclingMeasuresTaken;
+        this->NEBypassedIntegerFeasibility = NEBypassedIntegerFeasibility;
     }
 
     // one-line print
     virtual void oneLinePrint(
         std::ostream& os,
         std::string const& sep) const;
+
+    // build number with warning codes
+    int getWarningCode() const;
 
     std::string status = "UNKNOWN";
 
@@ -57,6 +62,7 @@ public:
 
     std::shared_ptr<Node> finalNode = nullptr;
     bool antiCyclingMeasuresTaken = false;
+    bool NEBypassedIntegerFeasibility = false;
 };
 
 std::ostream& operator<<(std::ostream& os, NEPBranchOutput const& output);

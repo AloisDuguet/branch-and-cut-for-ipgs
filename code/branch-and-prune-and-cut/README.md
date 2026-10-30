@@ -1,8 +1,8 @@
-# Using the code
+## Using the code
 
-This document describes the dependencies used, gives some information on compilation of the code, how to run the code, and how to reproduce the results.
+This document describes the dependencies used and gives some information on compilation of the code.
 
-## Dependencies
+### Dependencies
 
 Compiled and ran with the following dependencies*:
 
@@ -13,10 +13,10 @@ Compiled and ran with the following dependencies*:
 
 _* reported versions are not minimal required versions but are the ones that have been tested._
 
-## Compiling
+### Compiling
 
 To find Gurobi, you can configure the `GUROBI_HOME` environment variable according to [the official Gurobi guidelines](https://support.gurobi.com/hc/en-us/articles/4534161999889-How-do-I-install-Gurobi-Optimizer-).
 
 CMake and Ninja can be used to build the project with something along the line of<br>
-`cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=<path-to-ninja> -DCMAKE_CXX_COMPILER=<path-to-compiler> -S . -B build`<br>
-`cmake --build build`
+`cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=<path-to-ninja> -DCMAKE_CXX_COMPILER=<path-to-compiler>`<br>
+`cmake --build .`

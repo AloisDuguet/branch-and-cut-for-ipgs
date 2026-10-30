@@ -65,7 +65,7 @@ double operator*(vector<double> const& u, vector<double> const& v) {
     }
 }
 
-vector<double> operator*(double a, std::vector<double> const &v) {
+vector<double> operator*(double a, vector<double> const &v) {
     vector<double> res = {};
     for (double val : v)
         res.push_back(a*val);
@@ -115,7 +115,7 @@ void printVector(vector<bool> const& v, bool printEndl) {
         cout << endl;
 }
 
-bool isValueInVector(int value, std::vector<int> v) {
+bool isValueInVector(int value, vector<int> v) {
     for (int element : v)
         if (value == element)
             return true;
@@ -190,7 +190,7 @@ void removeCloseToZero(GRBsvec* x, double tolerance) {
     }
 }
 
-vector<double> integralityRounding(std::vector<double> v, double const tolerance) {
+vector<double> integralityRounding(vector<double> v, double const tolerance) {
     for (indexx i = 0; i < v.size(); i++)
         v[i] = integralityRounding(v[i], tolerance);
     return v;
@@ -265,7 +265,7 @@ vector<vector<double>> parseFlattenedMatrix(string const& str, bool transpose) {
     return matrix;
 }
 
-std::vector<double> parseFlattenedVector(std::string const& str) {
+vector<double> parseFlattenedVector(string const& str) {
     string temp;
     istringstream iss(str);
     getline(iss,temp,' '); // "size"
@@ -282,6 +282,26 @@ std::vector<double> parseFlattenedVector(std::string const& str) {
     return vec;
 }
 
+string findFirstLineWith(ifstream& file, string const& target) {
+    string line;
+    while (getline(file, line))
+        if (line.find(target) != string::npos)
+            return line;
+    throw runtime_error("string " + target + " not found in file");
+    return "";
+}
+
+void replaceAll(string& str, const string& from, const string& to)
+{
+    if (from.empty()) return;
+
+    std::size_t pos = 0;
+    while ((pos = str.find(from, pos)) != std::string::npos) {
+        str.replace(pos, from.length(), to);
+        pos += to.length();  // Move past the replacement
+    }
+}
+
 bool handleBoolErrorAsMainArgument(char const* arg, int const pos) {
     string const s = arg;
     if ( s.size() != 1 || s[0] < '0' || s[0] > '1' )
@@ -294,13 +314,48 @@ vector<double> buildVectorFromString(string& s) {
     vector<double> res = {};
     stringstream ss(s);
     string temp;
-    while (std::getline(ss, temp, ',')) {
+    while (getline(ss, temp, ',')) {
         res.push_back(stod(temp));
     }
     return res;
 }
 
-std::string to_string(std::vector<double> &v) {
+int getPrecisionFloatFormat(double value, int decimalDigits) {
+    if (value < 0)
+        value = -value;
+    if (value == 0)
+        return 1;
+    if (value == std::numeric_limits<double>::infinity())
+        return decimalDigits;
+    return static_cast<int>(ceil(abs(log10(value)))) + decimalDigits + (value < 0);
+}
+
+
+vector<bool> allButLastTrue(int const n) {
+    vector<bool> res = {};
+    for (indexx i = 0; i < n-1; i++)
+        res.push_back(true);
+    res.push_back(false);
+    return res;
+}
+
+string to_string(vector<double> &v) {
+    string s;
+    for (auto const value : v) {
+        s += to_string(value) + " ";
+    }
+    return s.substr(0, s.size()-1);
+}
+
+string to_string(vector<int> &v) {
+    string s;
+    for (auto const value : v) {
+        s += to_string(value) + " ";
+    }
+    return s.substr(0, s.size()-1);
+}
+
+string to_string(vector<bool> &v) {
     string s;
     for (auto value : v) {
         s += to_string(value) + " ";
@@ -308,18 +363,22 @@ std::string to_string(std::vector<double> &v) {
     return s.substr(0, s.size()-1);
 }
 
+std::vector<double> expandToVector(double value, int length) {
+    vector<double> v = {};
+    for (indexx i = 0; i < length; i++)
+        v.push_back(value);
+    return v;
+}
 
 double randomUniformO1() {
     return rand() / static_cast<double>(RAND_MAX);
 }
-
 
 int randomUniformInt(UniformDistribInt distrib) {
     return rand() % (distrib.range*2+1) + distrib.mean - distrib.range;
 }
 
 int randomUniformIntRange(int a, int b) {
-    srand(time(nullptr));
     return rand() % (b - a + 1) + a;
 }
 
@@ -342,6 +401,57 @@ string getCurrentTimeAndDate()
     auto const time = chrono::current_zone()
         ->to_local(chrono::system_clock::now());
     return format("{:%Y-%m-%d-%X}", time);
+}
+
+std::vector<std::vector<double> > symmetricPositiveDefiniteGeneration(
+    int size,
+    Bounds rangeLowerTriangularDiagonal,
+    Bounds rangeLowerPart,
+    double sparsityLowerPart,
+    unsigned int seed,
+    bool isInteger) {
+    if (!isInteger)
+        throw logic_error("float symmetric positive-definite generation not implemented");
+    if (rangeLowerTriangularDiagonal.lb <= 0)
+        throw logic_error("SPD matrices need strictly positive diagonal value");
+
+    srand(seed);
+
+    // generation of the lower-triangular matrix
+    vector<vector<double>> lowerTriangular;
+    for (indexx i = 0; i < size; i++) {
+        vector<double> temp = {};
+        for (indexx j = 0; j < i; j++) {
+            if (rand() < sparsityLowerPart*static_cast<double>(RAND_MAX))
+                temp.push_back(randomUniformIntRange(
+                    rangeLowerPart.lb,
+                    rangeLowerPart.ub));
+            else
+                temp.push_back(0);
+        }
+        temp.push_back(randomUniformIntRange(
+            rangeLowerTriangularDiagonal.lb,
+            rangeLowerTriangularDiagonal.ub));
+        for (indexx j = i+1; j < size; j++)
+            temp.push_back(0);
+        lowerTriangular.push_back(temp);
+    }
+
+    // multiplication of the lower triangular L with its symmetric: L L^T
+    vector<vector<double>> spd = {};
+    for (indexx i = 0; i < size; i++) {
+        vector<double> temp = {};
+        for (indexx j = 0; j < size; j++) {
+            double val = 0;
+            for (indexx k = 0; k < size; k++)
+                val += lowerTriangular[i][k] * lowerTriangular[j][k];
+            temp.push_back(val);
+        }
+        spd.push_back(temp);
+        cout << temp << endl;
+    }
+
+    return spd;
 }
 
 unordered_map<string, double> operator+=(

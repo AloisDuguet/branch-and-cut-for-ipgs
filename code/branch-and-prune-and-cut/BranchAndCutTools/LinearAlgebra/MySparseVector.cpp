@@ -88,6 +88,11 @@ bool MySparseVector::operator!=(MySparseVector const& v) const {
 MySparseVector MySparseVector::operator+(MySparseVector v) const {
     // v is copied on purpose to modify and return it
     // without modifying the two arguments
+    // TODO: make two versions of this function for efficiency:
+    // one that do not modify the two arguments (like right now)
+    // one that adds v to this for cases this += v
+    // (we want the result in one of the two arguments)
+    // TODO: if the coefs are sorted by index, it will be much faster
     for (indexx i = 0; i < m_indices.size(); i++) {
         bool coef_added = false;
         for (indexx j = 0; j < v.m_indices.size(); j++) {
@@ -130,6 +135,8 @@ void MySparseVector::addCoefficient(double value, indexx index) {
     // check if index already has a coefficient.
     // If yes, add value to the old value
     // If no, add a new index with this value
+    // TODO: it should be faster to keep a list of index sorted
+    // because adding a new coefficient costs log(n) while without it costs n.
     if (value != 0) {
         bool isNewIndex = true;
         for (indexx i = 0; i < m_indices.size(); i++) {
@@ -157,6 +164,13 @@ void MySparseVector::deleteCoefficient(indexx const index) {
     m_indices.erase(m_indices.begin() + index);
 }
 
+double MySparseVector::getCoefficientValue(indexx const k) const {
+    for (indexx i = 0; i < m_indices.size(); i++) {
+        if (m_indices[i] == k)
+            return m_values[i];
+    }
+    return 0.0;
+}
 
 double MySparseVector::getValue(indexx k) const {
     return m_values[k];
@@ -166,11 +180,16 @@ std::vector<double> MySparseVector::getValues() const {
     return m_values;
 }
 
+std::vector<indexx> MySparseVector::getIndices() const {
+    return m_indices;
+}
+
 indexx MySparseVector::getIndex(indexx k) const {
     return m_indices[k];
 }
 
 double MySparseVector::distanceMeasure(MySparseVector const& v) const {
+    // TODO: when the coefs will be sorted by index, it will be much faster
     double sumOfSquare = 0;
     for (indexx i = 0; i < m_indices.size(); i++) {
         bool coef_found = false;
@@ -252,6 +271,17 @@ bool MySparseVector::compareApproxEqual(MySparseVector const& y,
     return true;
 }
 
+void MySparseVector::removeCoefsCloseToZero(double const tolerance, int verbosity) {
+    vector<indexx> indicesToDelete = {};
+    for (indexx ind = this->size()-1; ind >= 0 ; ind--)
+         if (abs(m_values[ind]) < tolerance) {
+            indicesToDelete.push_back(ind);
+            if (verbosity >= 2)
+                cout << "Removing coefficient " << m_values[ind] << " x_" << m_indices[ind] << endl;
+         }
+    for (auto const& ind : indicesToDelete)
+        this->deleteCoefficient(ind);
+}
 
 ostream& operator<<(ostream& os, MySparseVector const& v) {
     v.print(os);

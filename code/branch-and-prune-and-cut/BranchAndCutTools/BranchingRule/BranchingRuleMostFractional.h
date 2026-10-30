@@ -13,7 +13,7 @@ public:
 
     // return the most fractional variable of node->getSolution()
     // that should be integer
-    indexx getBranchingVariable(std::shared_ptr<Node> const& node) override;
+    indexx getBranchingVariable(std::shared_ptr<Node> const& node, double integerFeasibilityTolerance) const override;
 };
 
 

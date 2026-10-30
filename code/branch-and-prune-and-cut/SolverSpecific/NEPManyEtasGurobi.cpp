@@ -33,6 +33,7 @@ NEPManyEtasGurobi::NEPManyEtasGurobi(
         m_etaLowerBounds.push_back(0);
         m_etaUpperBounds.push_back(0);
     }
+    m_whichCutString = "UNK";
 }
 
 void NEPManyEtasGurobi::initialize() {
@@ -40,9 +41,12 @@ void NEPManyEtasGurobi::initialize() {
 }
 
 void NEPManyEtasGurobi::print(ostream& os) const {
+    // TODO: rewrite this function with more operators << overloaded
+    // maybe in mother class NashEquilibriumProblemAbstractSolver
+    // auto NEPCast = static_cast<NashEquilibriumProblem>(*this);
+    // NEPCast.print(os);
     NashEquilibriumProblem::print(os);
-    os << "initial eta lower bounds: " << m_etaLowerBounds << endl;
-    os << "initial eta upper bounds: " << m_etaUpperBounds << endl;
+    cout << endl;
     if (m_nashEquilibriumList.size() > 1) {
         os << m_nashEquilibriumList.size() << " equilibria found right now:" << endl;
         for (auto const& nashEquilibrium : m_nashEquilibriumList)
@@ -71,6 +75,8 @@ indexx NEPManyEtasGurobi::getEtaIndex(indexx player) const {
 
 double NEPManyEtasGurobi::evalResponseValue(indexx player,
                                             vector<double> const& point) const {
+    // TODO: by moving some attributes to NEPAbstractSolver,
+    // this method can be coded only in NEPAbstractSolver
     double val = 0.0;
 
     vector<int> numberOfVariablesPerPlayer = getNumberOfVariablesPerPlayer();
@@ -102,9 +108,9 @@ bool NEPManyEtasGurobi::checkNE(
                                tolerance)) {
             if (verbosity >= 3) {
                 cout << "response value of player " << player << " is "
-                     << format("{:.12f}", evalResponseValue(player, point)) << endl;
+                     << format("{:.12g}", evalResponseValue(player, point)) << endl;
                 cout << "BR value is                   "
-                     << format("{:.12f}",m_bestResponses[player].objective) << endl;
+                     << format("{:.12g}",m_bestResponses[player].objective) << endl;
             }
             return false;
         }
@@ -117,6 +123,8 @@ void NEPManyEtasGurobi::computeBestResponse(indexx player,
                                             shared_ptr<GRBEnv> const& globalEnv,
                                             double solverTimeLimit,
                                             int verbosity) {
+    //TODO: the following code should be a function call
+    //that would build and solve the model.
     if (verbosity >= 3)
         cout << "BR of player " << player << ": ";
 
@@ -269,12 +277,8 @@ void NEPManyEtasGurobi::computeAllBestResponses(vector<double> const& point,
     }
 }
 
-shared_ptr<OptimizationProblem> NEPManyEtasGurobi::buildOptimizationProblem() {
-    // 2 steps:
-    // 1 - 'concatenate' all best responses into one
-    // 2 - add specific parts coming from the Nikaido-Isoda function and the modeling
-
-    // 1 - concatenation of opt problems
+OptimizationProblemPieces NEPManyEtasGurobi::aggregateBestResponses() const {
+    // concatenate all best responses into one
     int numberOfVariables = 0;
     for (indexx i = 0; i < m_numberOfPlayers; i++) {
         numberOfVariables += getNumberOfVariablesOfPlayer(i);
@@ -314,6 +318,26 @@ shared_ptr<OptimizationProblem> NEPManyEtasGurobi::buildOptimizationProblem() {
             newVec.end());
     }
 
+    return OptimizationProblemPieces(
+        numberOfVariables,
+        c,
+        Q,
+        constraints,
+        integralityConstraints);
+}
+
+shared_ptr<OptimizationProblem> NEPManyEtasGurobi::buildOptimizationProblem() {
+    // 2 steps:
+    // 1 - 'concatenate' all best responses into one
+    // 2 - add specific parts coming from the Nikaido-Isoda function and the modeling
+
+    // 1 - concatenation of opt problems
+    auto [numberOfVariables,
+          c,
+          Q,
+          constraints,
+          integralityConstraints] = aggregateBestResponses();
+
     // 2 - special ingredients : eta_i for each player
     // add eta_i for each player with bounds
     for (indexx player = 0; player < m_numberOfPlayers; player++) {
@@ -326,6 +350,140 @@ shared_ptr<OptimizationProblem> NEPManyEtasGurobi::buildOptimizationProblem() {
         // eta_i <= UB
         constraints.push_back({{{1.0}, {numberOfVariables-1}}, {}, m_etaUpperBounds[player]});
     }
+
+    // definition of OptimizationProblem problem
+    shared_ptr<OptimizationProblem> problem =
+        make_shared<OptimizationProblem>(numberOfVariables,
+                                         c,
+                                         Q,
+                                         constraints,
+                                         integralityConstraints);
+
+    return problem;
+}
+
+OptimizationProblemPieces NEPManyEtasGurobi::completeWithLowerLevelVariables(
+        OptimizationProblemPieces &upperLevelPart) {
+    // complete bilevel formulation of upperLevelPart by adding lower-level part
+    // it is a copy of the upperLevelPart with variables x_i changed to y_i, and
+    // x_-i unchanged
+    // order of variables: [x,y]
+
+    auto [numberOfVariables,
+          c,
+          Q,
+          constraints,
+          integralityConstraints] = upperLevelPart;
+
+    // build vector with cumulative number of variables in players
+    vector<indexx> numberOfVariablesPerPlayer = {};
+    vector<indexx> cumulativeNumberOfVariables = {0};
+    for (indexx i = 0; i < m_numberOfPlayers; i++) {
+        numberOfVariablesPerPlayer.push_back(getNumberOfVariablesOfPlayer(i));
+        if (i != 0)
+            cumulativeNumberOfVariables.push_back(cumulativeNumberOfVariables.back() + getNumberOfVariablesOfPlayer(i));
+    }
+    // cout << "variables per player: " << numberOfVariablesPerPlayer << endl;
+    // cout << "cumulative number of variables per player: " << cumulativeNumberOfVariables << endl;
+
+    // update numberOfVariables
+    auto numberOfUpperLevelVariables = numberOfVariables;
+    numberOfVariables *= 2;
+    // cout << "number of upper-level variables: " << numberOfUpperLevelVariables << endl;
+    // cout << "number of bilevel variables: " << numberOfVariables << endl;
+
+    // update c
+    for (indexx player = 0; player < m_numberOfPlayers; player++) {
+        auto costPlayer = m_bestResponseProblems[player]->getC();
+        auto additionalC = updateLinearTermForLowerLevel(
+            costPlayer,
+            cumulativeNumberOfVariables[player],
+            cumulativeNumberOfVariables[player]+numberOfVariablesPerPlayer[player],
+            numberOfUpperLevelVariables);
+        for (indexx i = 0; i < additionalC.size(); i++)
+            // minus sign on the value because it is a min max obj
+            c.addCoefficient(-additionalC.getValue(i), additionalC.getIndex(i));
+    }
+
+    // Q: throw an error if not empty
+    if (Q.size() != 0)
+        throw logic_error("quadratic terms in the objective not implemented, because it is meant for a MibS call");
+
+    // update constraints
+    for (indexx player = 0; player < m_numberOfPlayers; player++) {
+        for (Constraint const& con : m_bestResponseProblems[player]->getConstraints()) {
+            if (con.getXQx().size() != 0)
+                throw logic_error("quadratic terms in the constraints not implemented, because it is meant for a MibS call");
+            auto newC = updateLinearTermForLowerLevel(
+                con.getAx(),
+                cumulativeNumberOfVariables[player],
+                cumulativeNumberOfVariables[player]+numberOfVariablesPerPlayer[player],
+                numberOfUpperLevelVariables);
+            auto updatedConstraint = Constraint(newC, {}, con.getB());
+            // check if this constraint is already in the model
+            bool isConAlreadyAdded = false;
+            for (Constraint const& conAlreadyAdded : constraints) {
+                if (updatedConstraint == conAlreadyAdded) {
+                    isConAlreadyAdded = true;
+                    break;
+                }
+            }
+            if (!isConAlreadyAdded)
+                constraints.push_back(updatedConstraint);
+        }
+    }
+
+    // update integralityConstraints
+    int originalSizeIntegralityConstraints = static_cast<int>(integralityConstraints.size());
+    for (indexx i = 0; i < originalSizeIntegralityConstraints; i++)
+        integralityConstraints.push_back(integralityConstraints[i]+numberOfUpperLevelVariables);
+
+    return OptimizationProblemPieces(
+        numberOfVariables,
+        c,
+        Q,
+        constraints,
+        integralityConstraints);
+}
+
+MySparseVector updateLinearTermForLowerLevel(
+        MySparseVector const& ax,
+        indexx startIndex,
+        indexx endIndex,
+        int indexIncrease) {
+    // returns a sparse vector modified from ax, where each index of a
+    // coefficient between startIndex (included) and endIndex (not included)
+    // is increased by indexIncrease
+
+    MySparseVector newAx = {};
+    for (indexx i = 0; i < ax.size(); i++) {
+        auto index = ax.getIndex(i);
+        auto value = ax.getValue(i);
+        if (index >= startIndex and index < endIndex)
+            index += indexIncrease;
+        newAx.addCoefficient(value, index);
+    }
+    return newAx;
+}
+
+shared_ptr<OptimizationProblem> NEPManyEtasGurobi::buildOptimizationProblemMibS() {
+    // build bilevel optimization problem from game
+    // no eta variables needed
+
+    // 1) aggregate all best responses to get upper-level part (x_i variables)
+    auto upperLevelPart = aggregateBestResponses();
+
+    vector<indexx> numberOfVariablesPerPlayer = {};
+    for (indexx i = 0; i < m_numberOfPlayers; i++) {
+        numberOfVariablesPerPlayer.push_back(getNumberOfVariablesOfPlayer(i));
+    }
+
+    // 2) get lower-level part by copying upper-level and changing x_i variables to y_i
+    auto [numberOfVariables,
+          c,
+          Q,
+          constraints,
+          integralityConstraints] = completeWithLowerLevelVariables(upperLevelPart);
 
     // definition of OptimizationProblem problem
     shared_ptr<OptimizationProblem> problem =
@@ -408,24 +566,56 @@ Cut NEPManyEtasGurobi::buildDisaggregatedEquilibriumCut(indexx player,
 double NEPManyEtasGurobi::evalNikaidoIsoda(vector<double> const& point,
                                            double objectiveValue,
                                            bool isSolutionInteger) const  {
-    // Psi(x*,y*) = objectiveValue + sum_player (eta_player - bestResponseValue)
-
     // recover the sum of costs from the node objective value
-    double sumOfBestResponseValue = 0.0;
-    double sumOfEtas = 0;
+    double sumOfDiscrepancy = 0.0;
     for (indexx player = 0; player < m_numberOfPlayers; player++) {
-        sumOfBestResponseValue += m_bestResponses[player].objective;
-        sumOfEtas += point[getEtaIndex(player)];
+        double responseValuePlayer = evalResponseValue(player, point);
+        double bestResponseValuePlayer = m_bestResponses[player].objective;
+        sumOfDiscrepancy += max(0.0, responseValuePlayer - bestResponseValuePlayer);
+        if (isSolutionInteger)
+            checkResponseValue(player, point, responseValuePlayer, bestResponseValuePlayer, 1e-3);
     }
-    double value = objectiveValue + sumOfEtas - sumOfBestResponseValue;
-
-    // check that value > -tolerance
-    if (!compareApproxMore(value,0) and isSolutionInteger) {
-        // only valid if the solution satisfies integrality requirements
-        throw logic_error("evaluation of V hat function < 0: " + to_string(value));
-    }
-    return value;
+    return sumOfDiscrepancy;
 }
+
+void NEPManyEtasGurobi::checkResponseValue(
+        indexx const player,
+        vector<double> const& point,
+        double const responseValue,
+        double const bestResponseValue,
+        double const tolerance) const {
+    // tolerance 1e-3 quite high because it is counted as 0 anyway in sumOfDiscrepancy
+    // what we want to detect is a best response which has integer values
+    // different from the closest integer point of the response. Then the change of
+    // response value is likely way above the current tolerance
+    double toleranceForWarning = 1e-3;
+    double toleranceForErrorThrowing = 1e-1;
+    if (!compareApproxLess(bestResponseValue, responseValue, toleranceForWarning)) {
+        // debug code
+        if (!m_bestResponseProblems[player]->checkPointFeasibility(point)) {
+            cout << "node solution does not satisfy all constraints "
+                    "of optimization problem of player " << player << endl;
+        }
+        cout << "difference in response value: RV-BRV = "
+             << responseValue - bestResponseValue << endl;
+        vector<double> pointTruncated = {};
+        for (indexx i = 0; i < m_bestResponses[player].solution.size(); i++)
+            pointTruncated.push_back(point[i]);
+        cout << "distance between response and best response = " << norm2(pointTruncated, m_bestResponses[player].solution) << endl;
+        cout << "response value of player          " << player << " = " << responseValue << endl;
+        // cout << "response value with BRV of player " << player << " = " << evalResponseValue(player, m_bestResponses[player].solution) << endl;
+        cout << "best response value of player     " << player << " = " << bestResponseValue << endl;
+        // cout << "response solution:      " << point << endl;
+        // cout << "best response solution: " << m_bestResponses[player].solution << endl;
+        for (indexx i = 0; i < m_bestResponses[player].solution.size(); i++)
+            if (!compareApproxEqual(point[i], m_bestResponses[player].solution[i], 1e-9))
+                cout << "in index " << i << " values differ: " << format("{:.{}g}", point[i], getPrecisionFloatFormat(point[i]))
+                     << " and " << format("{:.{}g}", m_bestResponses[player].solution[i], getPrecisionFloatFormat(m_bestResponses[player].solution[i])) << endl;
+        if (!compareApproxLess(bestResponseValue, responseValue, toleranceForErrorThrowing))
+            throw logic_error("Best response is worse than response");
+    }
+}
+
 
 vector<double> NEPManyEtasGurobi::differencesToBestResponseValues(
         vector<double> const& point) const {
@@ -475,6 +665,7 @@ bool NEPManyEtasGurobi::testBestEtaPossible(vector<double> const& point,
 SolveOutput NEPManyEtasGurobi::computeEtaBound(indexx player, bool isUpperBound, double mipGap) const {
     try {
         // Create an environment
+        // // TODO: use environment of BranchAndPruneAndCutForNEP
         GRBEnv env = GRBEnv(true);
         env.set(GRB_IntParam_OutputFlag, 0);
         env.set("LogFile", "");
@@ -553,6 +744,8 @@ SolveOutput NEPManyEtasGurobi::computeEtaBound(indexx player, bool isUpperBound,
         // Status checking
         int status = model.get(GRB_IntAttr_Status);
 
+        // TODO: make a function that retrieves and rounds the solution
+        // with the following code
         if (status == GRB_OPTIMAL) {
             // query values of the variable at the optimal solution found
             double objectiveValue = model.get(GRB_DoubleAttr_ObjVal);
@@ -602,12 +795,20 @@ void NEPManyEtasGurobi::computeEtasBounds(double mipGap) {
         SolveOutput infoUBSolve = computeEtaBound(player, true, mipGap);
         if (infoUBSolve.status == GRB_OPTIMAL) {
             UB = infoUBSolve.objective;
+        } else if (infoUBSolve.status == GRB_INFEASIBLE or
+            infoUBSolve.status == GRB_UNBOUNDED or
+            infoUBSolve.status == GRB_INF_OR_UNBD) {
+            throw logic_error("UB could not be computed because model is infeasible or unbounded");
         }
         else
             UB = etaUB;
         SolveOutput infoLBSolve = computeEtaBound(player, false, mipGap);
         if (infoLBSolve.status == GRB_OPTIMAL) {
             LB = infoLBSolve.objective;
+        } else if (infoLBSolve.status == GRB_INFEASIBLE or
+            infoLBSolve.status == GRB_UNBOUNDED or
+            infoLBSolve.status == GRB_INF_OR_UNBD) {
+            throw logic_error("LB could not be computed because model is infeasible or unbounded");
         }
         else
             LB = etaLB;
@@ -750,9 +951,10 @@ std::vector<Cut> NEPManyEtasGurobi::deriveNoGoodCut(
     for (indexx index = 0; index < nVariables;index++) {
         double xi = point[index];
         indices.push_back(index);
-        if (compareApproxEqual(xi,0)) {
+        double gurobiIntegerTolerance = 1e-5;
+        if (compareApproxEqual(xi,0, gurobiIntegerTolerance)) {
             values.push_back(-1);
-        } else if (compareApproxEqual(xi,1)) {
+        } else if (compareApproxEqual(xi,1, gurobiIntegerTolerance)) {
             values.push_back(1);
             b += 1;
         } else {
@@ -777,19 +979,20 @@ CutInformation NEPManyEtasGurobi::deriveCut(vector<double> const &point,
                                             shared_ptr<GRBModel> const &nodeModel,
                                             shared_ptr<OptimizationProblem> const &nodeProblem,
                                             int verbosity) {
-    if (whichCutString == "eqCuts") {
+    m_whichCutString = whichCutString;
+    if (m_whichCutString == "eqCuts") {
         return {deriveEquilibriumCutForEachPlayer(nodeModel, point, tolerance, verbosity),{}};
     }
-    if (whichCutString == "intersectionCuts") {
+    if (m_whichCutString == "intersectionCuts") {
         return deriveICForEachPlayer(nodeModel, point, tolerance, verbosity);
     }
-    if (whichCutString == "noGoodCuts") {
+    if (m_whichCutString == "noGoodCuts") {
         return {deriveNoGoodCut(point, verbosity),{}};
     }
 
     // after all declared cut types
     throw runtime_error("Wrong input whichCutString: string '"
-                            + whichCutString + "' describing cut has not "
+                            + m_whichCutString + "' describing cut has not "
                             "been coded in NashEquilibriumProblemManyEtasGurobi::deriveCut");
 }
 
@@ -853,7 +1056,8 @@ SetupIC NEPManyEtasGurobi::initializeSetupIC(
     // (for slack variables) - number of basic (declared) variables
     int numNonbasicVariables = numDeclaredVariables + numInequalityConstraints - numBasicVariables;
 
-    // check if numNonbasicVariables == numDeclaredVariables
+    // check if numNonbasicVariables == numDeclaredVariables, which should be true because
+    // only less-than inequality constraints are allowed in the model
     if (numNonbasicVariables != numDeclaredVariables) {
         throw logic_error("implementation might not work because the number of "
                 "nonbasic variables is not the number of declared variables");
@@ -968,6 +1172,7 @@ MatrixXd NEPManyEtasGurobi::buildExtremeRays(shared_ptr<GRBModel> const& model,
     // columns are ordered first with explicitely declared variables,
     // then slack variables in the order of the constraints they are associated to
     MatrixXd extremeRays(setupIC.numNonbasicVariables,setupIC.numDeclaredVariables+setupIC.numBasicVariables);
+    // cout << "number of extreme rays: " << setupIC.numNonbasicVariables << endl;
     // currently, all constraints are <= constraints, thus there is one slack variable per constraint
     // so numBasicVariables == numDeclaredVariables+numConstraints
     // and numNonbasicVariables == numDeclaredVariables
@@ -1377,15 +1582,27 @@ std::vector<Constraint> NEPManyEtasGurobi::getNEFreeSetEta(
     return newConstraints;
 }
 
+double NEPManyEtasGurobi::intersectionForLipschitzIC(
+        indexx player,
+        Constraint const &constraint,
+        vector<double> const &solution,
+        Eigen::RowVectorXd const &ray) const {
+    return -1;
+}
+
 vector<double> NEPManyEtasGurobi::computeAlphaForIC(
     MatrixXd const& extremeRays,
     indexx player,
     vector<double> const& solution,
     int numNonbasicVariables,
     vector<Constraint> const &NEFreeSet,
-    int verbosity) {
+    int verbosity) const {
     // compute alpha coefs as sup (x^star,nu^star) + alpha_i*r^j \in S^+_i the NE-free set
     vector<double> alpha = {};
+
+    // TODO: less computations by inverting the order of the two for loops:
+    // numerator depends only on the constraint,
+    // so it can be computed outside of intersectionRayHalfspace
 
     for (indexx i = 0; i < numNonbasicVariables; i++) {
         // i is just a counter among all nonbasic variables giving the row of extremeRays
@@ -1396,9 +1613,9 @@ vector<double> NEPManyEtasGurobi::computeAlphaForIC(
         // direction is a vector corresponding to the ray i of extremeRays
         Eigen::RowVectorXd direction = extremeRays.row(i);
         for (Constraint const& constraint : NEFreeSet) {
-            double const toleranceDenominator = 1e-10;
             if (constraint.getXQx().size() == 0) {
                 // linear constraint
+                double const toleranceDenominator = 1e-10;
                 alpha_iCandidates.push_back(
                     intersectionRayHalfspace(solution,
                                                direction,
@@ -1408,12 +1625,18 @@ vector<double> NEPManyEtasGurobi::computeAlphaForIC(
             }
             else {
                 // quadratic constraint
-                alpha_iCandidates.push_back(intersectionRayQuadraticCurve(
-                                                solution,
-                                                direction,
-                                                constraint,
-                                                toleranceDenominator,
-                                                verbosity));
+                double const toleranceQuadraticTerm = 1e-6;
+                double lastAlpha_i;
+                if (m_whichCutString != "intersectionCutsLipschitz")
+                    lastAlpha_i = intersectionRayQuadraticCurve(
+                                                    solution,
+                                                    direction,
+                                                    constraint,
+                                                    toleranceQuadraticTerm,
+                                                    verbosity);
+                else
+                    lastAlpha_i = intersectionForLipschitzIC(player, constraint, solution, direction);
+                alpha_iCandidates.push_back(lastAlpha_i);
             }
         }
         // we still cannot replace -1 (meaning infinity) by infinity, so the next step should include that
@@ -1484,6 +1707,8 @@ Cut NEPManyEtasGurobi::computeICFromAlpha(
     }
 
     // build Cut
+    // for numerical stability: remove too small values
+    ICAx.removeCoefsCloseToZero(1e-11, 1);
     auto cut = Cut(ICAx,{},-rhs);
     return cut;
 }
@@ -1494,7 +1719,7 @@ Cut NEPManyEtasGurobi::deriveICForOnePlayer(vector<Constraint> const &NEFreeSet,
                                             shared_ptr<GRBModel> const& model,
                                             MatrixXd const& extremeRays,
                                             SetupIC const& setupIC,
-                                            int verbosity) {
+                                            int verbosity) const {
     // we can only derive an intersection cut if it is an optimal solution
     if (model->get(GRB_IntAttr_Status) != 2)
         throw logic_error("an intersection cut can't be derived if the node problem was not solved optimally");

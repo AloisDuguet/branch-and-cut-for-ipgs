@@ -13,6 +13,7 @@
 #include "CutInformation.h"
 #include "SolveOutput.h"
 #include "NashEquilibriumProblem.h"
+#include "Node.h"
 
 struct NEInfo {
     std::vector<double> NE;
@@ -56,6 +57,8 @@ public:
     // build the root node of our algorithm; not meant
     // to be in this class, better in a subclass of NEP.
     virtual std::shared_ptr<OptimizationProblem> buildOptimizationProblem();
+    // build the bilevel problem for the solver MibS
+    virtual std::shared_ptr<OptimizationProblem> buildOptimizationProblemMibS();
 
     // return the objective value of player with strategies in point
     [[nodiscard]] virtual double evalResponseValue(indexx player,
@@ -122,23 +125,26 @@ public:
     [[nodiscard]] virtual indexx getEtaIndex(indexx player) const;
 
     // methods linked with an approximate NE
-    [[nodiscard]] virtual double getApproximation() const;
+    [[nodiscard]] virtual std::vector<double> getApproximation() const;
     [[nodiscard]] virtual double getApproximationPlayer(indexx player) const;
     virtual void setApproximation(double delta);
     virtual void setApproximationPlayer(double delta, indexx player);
+    virtual void setAdditiveApproximationPlayer(double delta, indexx player);
     virtual void printApproximation(std::ostream& os) const;
     virtual void printEquilibriaSearched(std::ostream& os) const;
     virtual void printRegret(std::ostream& os, std::vector<double> const& point) const;
-    virtual std::vector<double> computeRegrets(std::vector<double> const& point) const;
+    [[nodiscard]] virtual std::vector<double> computeRegrets(std::vector<double> const& point) const;
     [[nodiscard]] virtual double getThresholdPruning() const;
     virtual void setPositiveResponses(bool b);
-    virtual Constraint buildLambdaConstraint(indexx player) const;
+    virtual void checkSignNodeValue(std::shared_ptr<Node> const& node) const;
+    [[nodiscard]] virtual Constraint buildLambdaConstraint(indexx player) const;
     virtual void setLipschitzConstants(
         std::string const &gameTypeString,
         std::string const &whichCutString,
         std::string const &instanceName);
-    virtual double getMultiplicativeApproximationPlayer(indexx player) const;
-    virtual double getAdditiveApproximationPlayer(indexx player) const;
+    [[nodiscard]] virtual double getMultiplicativeApproximationPlayer(indexx player) const;
+    [[nodiscard]] virtual double getAdditiveApproximationPlayer(indexx player) const;
+    [[nodiscard]] virtual std::vector<double> getAdditiveApproximation() const;
 
 protected:
     // list of all found NE

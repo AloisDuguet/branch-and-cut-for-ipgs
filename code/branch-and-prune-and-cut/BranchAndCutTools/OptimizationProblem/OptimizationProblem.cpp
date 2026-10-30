@@ -58,11 +58,13 @@ void OptimizationProblem::print(ostream& os) const {
     os << endl;
 }
 
-
 int OptimizationProblem::getNumberOfVariables() const {
     return m_numberOfVariables;
 }
 
+void OptimizationProblem::incrementNumberOfVariables() {
+    m_numberOfVariables++;
+}
 
 MySparseVector OptimizationProblem::getC() {
     return m_c;
@@ -97,19 +99,21 @@ void OptimizationProblem::setIntegralityConstraints(
     m_integralityConstraints = integralityConstraints;
 }
 
-void OptimizationProblem::AddConstraint(Constraint const &constraint) {
+void OptimizationProblem::addConstraint(Constraint const &constraint) {
     m_constraints.push_back(constraint);
 }
 
-bool OptimizationProblem::checkPointFeasibility(vector<double> const &point) const {
+bool OptimizationProblem::checkPointFeasibility(
+    vector<double> const &point) const {
     bool test = true;
+    // check constraints
     for (auto const& constraint : m_constraints) {
         if (constraint.checkConstraintWithPoint(point, 1)) {
             // relaunch test just for printing numerical values
-            test = !constraint.checkConstraintWithPoint(point, 2);
+            test = !constraint.checkConstraintWithPoint(point, 1);
             cout << "point is not feasible for node problem because of constraint "
                  << constraint << endl;
-            break;
+            cout << "because of a margin of " << constraint.evalLhs(point) - constraint.getB() << endl;
         }
     }
     if (test)
