@@ -54,7 +54,7 @@ for (i in 1:1) {
       sub <- res
       sub <- sub[grep(num_node,sub$FILENAME),]
       sub <- sub[grep(num_player,sub$FILENAME),]
-      solved[p,j] <- round(100*sum(sub[sub$GAME_TYPE == game_type,"SOLVE_STATUS"] != "TIME_LIMIT_REACHED") / nrow(sub), 1)
+      solved[p,j] <- round(100*sum(sub[sub$GAME_TYPE == game_type,"SOLVE_STATUS"] %in% c("SOLUTION_FOUND","NO_SOLUTION_FOUND")) / nrow(sub), 1)
     }
   }
   tab_solved <- as.table(solved)
@@ -88,3 +88,13 @@ print(nrow(res[res$SOLVE_STATUS != "TIME_LIMIT_REACHED" & res$CUTS_ADDED == 0,])
 
 print("proportion of instances not solved that have no cuts derived:")
 print(nrow(res[res$SOLVE_STATUS == "TIME_LIMIT_REACHED" & res$CUTS_ADDED == 0,])/nrow(res[res$SOLVE_STATUS == "TIME_LIMIT_REACHED",]))
+
+print("geometric mean of computation time for instances with two real players and for which an NE is found:")
+res_2realplayers <- res[grep("I_2", res$FILENAME),]
+print(res_2realplayers[res_2realplayers$SOLVE_STATUS == "SOLUTION_FOUND","TIME"])
+print(exp(mean(log(res_2realplayers[res_2realplayers$SOLVE_STATUS == "SOLUTION_FOUND", "TIME"]))))
+
+print("geometric mean of computation time for instances with two real players and for which no NE is proved:")
+res_2realplayers <- res[grep("I_2", res$FILENAME),]
+print(res_2realplayers[res_2realplayers$SOLVE_STATUS == "NO_SOLUTION_FOUND","TIME"])
+print(exp(mean(log(res_2realplayers[res_2realplayers$SOLVE_STATUS == "NO_SOLUTION_FOUND", "TIME"]))))

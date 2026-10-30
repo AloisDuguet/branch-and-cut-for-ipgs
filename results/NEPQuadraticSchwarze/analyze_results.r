@@ -59,17 +59,18 @@ for (i in 1:length(BCtime)) {
     BCtime[i] = round(as.numeric(BCtime[i]), digits=1)
 }
 
-table <- data.frame(instance = BPinstances, Bstatus = BPstatus, BPtime = BPtime, BCstatus = BCstatus, BCtime = BCtime, nodes = resBC$NODE_EXPLORED, cuts = resBC$CUTS_ADDED)
+table <- data.frame(instance = BPinstances, BPstatus = BPstatus, BPtime = BPtime, BCstatus = BCstatus, BCtime = BCtime, nodes = resBC$NODE_EXPLORED, cuts = resBC$CUTS_ADDED)
 rownames(table) <- NULL
 print(xtable(table, type='latex'))
 
 countInstances <- nrow(table)
 print("number and fraction of instances for which an NE was found or no NE was proved for BP:")
-countSolvedBP <- countInstances - nrow(table[table$BPstatus == "error",]) - nrow(table[table$BPstatus == "$t_{max}$",])
+countSolvedBP <- nrow(table[table$BPstatus == "no NE",]) + nrow(table[table$BPstatus == "NE found",])
 fracSolvedBP <- countSolvedBP / countInstances
 print(paste(countSolvedBP," ",fracSolvedBP))
+print("maybe remove one solved instance because N22_3 admits an NE, but BP prunes it")
 print("number and fraction of instances for which an NE was found or no NE was proved for BC:")
-countSolvedBC <- countInstances - nrow(table[table$BCstatus == "error",]) - nrow(table[table$BCstatus == "$t_{max}$",])
+countSolvedBC <- nrow(table[table$BCstatus == "no NE",]) + nrow(table[table$BCstatus == "NE found",])
 fracSolvedBC <- countSolvedBC / countInstances
 print(paste(countSolvedBC," ",fracSolvedBC))
 
@@ -77,18 +78,19 @@ print(paste(countSolvedBC," ",fracSolvedBC))
 logratios = list()
 sumlogratios = 0
 for (i in 1:length(BCtime)) {
-  if (BPstatus[i] == BCstatus[i] & !is.na(BPstatus[i]) & BPstatus[i] != "$t_{max}$") {
+  if (BPstatus[i] == BCstatus[i] & !is.na(BPstatus[i]) & BPstatus[i] == "NE found") {
     ratio = as.numeric(BPtime[i]) / as.numeric(BCtime[i])
     logratios = append(logratios,log(ratio))
     sumlogratios = sumlogratios + log(ratio)
   }
 }
 meanGeometricRatio = exp(sumlogratios/length(logratios))
+print(paste("geometric mean of BP time divided by BC time when both find an NE: ", meanGeometricRatio))
 
 ratios = list()
 sumratios = 0
 for (i in 1:length(BCtime)) {
-  if (BPstatus[i] == BCstatus[i] & !is.na(BPstatus[i]) & BPstatus[i] != "$t_{max}$") {
+  if (BPstatus[i] == BCstatus[i] & !is.na(BPstatus[i]) & BPstatus[i] == "NE found") {
     ratio = as.numeric(BPtime[i]) / as.numeric(BCtime[i])
     ratios = append(ratios,ratio)
     sumratios = sumratios + ratio
