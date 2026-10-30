@@ -9,7 +9,7 @@ Compiled and ran with the following dependencies*:
 - [CMake](https://cmake.org/) version 3.28.3.
 - [GCC](https://gcc.gnu.org/) version 13.3.0.
 - [Eigen](https://eigen.tuxfamily.org/dox/GettingStarted.html) version 3.4.0.
-- [Gurobi](https://www.gurobi.com/) version 12.0.0.
+- [Gurobi](https://www.gurobi.com/) version 13.0.1.
 
 _* reported versions are not minimal required versions but are the ones that have been tested._
 
